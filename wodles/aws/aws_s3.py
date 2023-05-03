@@ -72,8 +72,10 @@ def main(argv):
                 bucket_type = buckets_s3.load_balancers.AWSNLBBucket
             elif options.type.lower() == 'server_access':
                 bucket_type = buckets_s3.server_access.AWSServerAccess
+            elif options.type.lower() == 'cloud-connexa':
+                bucket_type = buckets_s3.cloud_connexa.AWSCloudConnexaBucket
             else:
-                raise Exception("Invalid type of bucket")
+                raise Exception(f"Invalid type of bucket: {options.type}")
             bucket = bucket_type(reparse=options.reparse, access_key=options.access_key,
                                  secret_key=options.secret_key,
                                  profile=options.aws_profile,
