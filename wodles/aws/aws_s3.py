@@ -2724,7 +2724,7 @@ class AWSCloudConnexaBucket(AWSCustomBucket):
             for line in f.readlines():
                 try:
                     for event in json_event_generator(line.rstrip()):
-                        event['source'] = 'openvpn-cloud-connexa'
+                        event['source'] = 'CloudConnexa'
                         content.append(event)
 
                 except json.JSONDecodeError as Einst:
