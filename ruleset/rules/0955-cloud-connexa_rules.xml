@@ -7,24 +7,25 @@
 
 <!--
     Log messages sample
-    {"CloudConnexaLogVersion": 1, "timestamp": "2013-02-29T08:00:01+01:00", "cloudId": "my-cloud-connexa", "traceId": "012345678901234567890", "category": "Activity.Admin", "eventName": "test healthcheck", "publicIp": "19.9.9.9", "initiator": "abcde", "source": "CloudConnexa", "aws": {"log_info": {"aws_account_alias": "", "log_file": "2023-03-01/2023-03-01-08-01-healthcheck-abcf.json.gz", "s3bucket": "log-streaming-2-wazuh"}, "source": "CloudConnexa"}}
+    {"CloudConnexaLogVersion": 1, "timestamp": "2013-02-29T08:00:01+01:00", "cloudId": "my-cloud-connexa", "traceId": "012345678901234567890", "category": "Activity.Admin", "eventName": "healthcheck", "publicIp": "19.9.9.9", "initiator": "abcde", "source": "CloudConnexa", "aws": {"log_info": {"aws_account_alias": "", "log_file": "2023-03-01/2023-03-01-08-01-healthcheck-abcf.json.gz", "s3bucket": "log-streaming-2-wazuh"}, "source": "CloudConnexa"}}
 -->
 
 <group name="cloud-connexa.json">
-    <rule id="93000" level="0">
+    <rule id="93000" level="2">
       <decoded_as>json</decoded_as>
       <field name="CloudConnexaLogVersion">1</field>
-      <description>CloudConnexa message detected. Version: $(CloudConnexaLogVersion).</description>
+      <description>CloudConnexa $(cloudId) INFO: $(initiator) (publicIp:'$(publicIp)'') performed '$(eventName)' from category '$(category)' at $(timestamp)</description>
     </rule>
 
     <!-- 
       Healthcheck message - initiated form the confguration UI.
-      {"CloudConnexaLogVersion": 1, "timestamp": "2013-02-29T08:00:01+01:00", "cloudId": "my-cloud-connexa", "traceId": "0123-4567-8901-2345-6789", "category": "Activity.Admin", "eventName": "test healthcheck", "publicIp": "19.9.9.9", "initiator": "0123-4567-8901-2345-abcd", "source": "CloudConnexa", "aws": {"log_info": {"aws_account_alias": "", "log_file": "2023-03-01/2023-03-01-08-01-healthcheck-abcf.json.gz", "s3bucket": "log-streaming-2-wazuh"}, "source": "CloudConnexa"}}
+      {"CloudConnexaLogVersion": 1, "timestamp": "2013-02-29T08:00:01+01:00", "cloudId": "my-cloud-connexa", "traceId": "0123-4567-8901-2345-6789", "category": "Activity.Admin", "eventName": "healthcheck", "publicIp": "19.9.9.9", "initiator": "0123-4567-8901-2345-abcd", "source": "CloudConnexa", "aws": {"log_info": {"aws_account_alias": "", "log_file": "2023-03-01/2023-03-01-08-01-healthcheck-abcf.json.gz", "s3bucket": "log-streaming-2-wazuh"}, "source": "CloudConnexa"}}
     -->
     <!-- TODO: change level to 2 -->
-    <rule id="93001" level="13">
+    <rule id="93001" level="2">
       <if_sid>93000</if_sid>
-      <description>CloudConnexa $(cloudId) INFO: $(initiator) (publicIp:'$(publicIp)'') performed '$(eventName)' from category '$(category)' at $(timestamp)</description>
+      <field name="eventName">^healthcheck$</field>
+      <description>CloudConnexa $(cloudId) INFO: $(initiator) (publicIp:'$(publicIp)'') sent a Test message at $(timestamp)</description>
     </rule>
 
 </group>
