@@ -21,7 +21,6 @@
       Healthcheck message - initiated form the confguration UI.
       {"CloudConnexaLogVersion": 1, "timestamp": "2013-02-29T08:00:01+01:00", "cloudId": "my-cloud-connexa", "traceId": "0123-4567-8901-2345-6789", "category": "Activity.Admin", "eventName": "healthcheck", "publicIp": "19.9.9.9", "initiator": "0123-4567-8901-2345-abcd", "source": "CloudConnexa", "aws": {"log_info": {"aws_account_alias": "", "log_file": "2023-03-01/2023-03-01-08-01-healthcheck-abcf.json.gz", "s3bucket": "log-streaming-2-wazuh"}, "source": "CloudConnexa"}}
     -->
-    <!-- TODO: change level to 2 -->
     <rule id="93001" level="2">
       <if_sid>93000</if_sid>
       <field name="eventName">^healthcheck$</field>
