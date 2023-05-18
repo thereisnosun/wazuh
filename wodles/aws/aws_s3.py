@@ -2708,11 +2708,6 @@ class AWSCloudConnexaBucket(AWSCustomBucket):
         self.check_prefix = True
         debug(f"+++ AWSCloudConnexaBucket initialized", 3)
 
-    def get_full_prefix(self, account_id, account_region):
-        return '{service_prefix}{aws_region}/'.format(
-            service_prefix=self.get_service_prefix(account_id),
-            aws_region=account_region)
-
     def get_base_prefix(self):
         base_path = '{}AWSLogs/{}'.format(self.prefix, self.suffix)
         if self.aws_organization_id:
