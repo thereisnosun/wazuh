@@ -2702,9 +2702,8 @@ class AWSServerAccess(AWSCustomBucket):
 class AWSCloudConnexaBucket(AWSCustomBucket):
 
     def __init__(self, **kwargs):
-        db_table_name = 'cloudconnexa'
+        db_table_name = 'cloud_connexa'
         AWSCustomBucket.__init__(self, db_table_name, **kwargs)
-        self.check_prefix = False
         self.date_format = '%Y-%m-%d'
         debug(f"+++ AWSCloudConnexaBucket initialized", 3)
 
@@ -2746,7 +2745,7 @@ class AWSCloudConnexaBucket(AWSCustomBucket):
     def get_alert_msg(self, aws_account_id, log_key, event, error_msg=""):
         """ Override to send the json read from the bucklet for OpenVPN entries. """
         debug(f"+++ AWSOpenVPNCloudConnexaBucket:get_alert_msg {aws_account_id}, {log_key}, {event}, {error_msg};", 3)
-        msg = event #TODO:check me
+        msg = event.copy()
         msg.update(
             {
                 'aws': {
@@ -3683,10 +3682,10 @@ def main(argv):
                 bucket_type = AWSNLBBucket
             elif options.type.lower() == 'server_access':
                 bucket_type = AWSServerAccess
-            elif options.type.lower() == 'cloud-connexa':
+            elif options.type.lower() == 'cloud_connexa':
                 bucket_type = AWSCloudConnexaBucket
             else:
-                raise Exception("Invalid type of bucket")
+                raise Exception(f"Invalid type of bucket: {options.type}")
             bucket = bucket_type(reparse=options.reparse, access_key=options.access_key,
                                  secret_key=options.secret_key,
                                  profile=options.aws_profile,
