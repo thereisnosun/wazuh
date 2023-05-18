@@ -2705,7 +2705,23 @@ class AWSCloudConnexaBucket(AWSCustomBucket):
         db_table_name = 'cloud_connexa'
         AWSCustomBucket.__init__(self, db_table_name, **kwargs)
         self.date_format = '%Y-%m-%d'
+        self.check_prefix = True
         debug(f"+++ AWSCloudConnexaBucket initialized", 3)
+
+    def get_full_prefix(self, account_id, account_region):
+        return '{service_prefix}{aws_region}/'.format(
+            service_prefix=self.get_service_prefix(account_id),
+            aws_region=account_region)
+
+    def get_base_prefix(self):
+        base_path = '{}AWSLogs/{}'.format(self.prefix, self.suffix)
+        if self.aws_organization_id:
+            base_path = '{base_prefix}{aws_organization_id}/'.format(
+                base_prefix=base_path,
+                aws_organization_id=self.aws_organization_id)
+
+        return base_path
+
 
     def load_information_from_file(self, log_key):
         """Load data from a OpenVPN log files."""
