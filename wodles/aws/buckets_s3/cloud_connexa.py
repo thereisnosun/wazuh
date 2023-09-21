@@ -8,11 +8,21 @@ from aws_tools import debug
 class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
     def __init__(self, **kwargs):
-        db_table_name = 'cloudconnexa'
+        db_table_name = 'cloud_connexa'
         aws_bucket.AWSCustomBucket.__init__(self, db_table_name, **kwargs)
-        self.check_prefix = False
         self.date_format = '%Y-%m-%d'
+        self.check_prefix = True
         debug(f"+++ AWSCloudConnexaBucket initialized", 3)
+
+    def get_base_prefix(self):
+        base_path = '{}AWSLogs/{}'.format(self.prefix, self.suffix)
+        if self.aws_organization_id:
+            base_path = '{base_prefix}{aws_organization_id}/'.format(
+                base_prefix=base_path,
+                aws_organization_id=self.aws_organization_id)
+
+        return base_path
+
 
     def load_information_from_file(self, log_key):
         """Load data from a OpenVPN log files."""
@@ -30,7 +40,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             for line in f.readlines():
                 try:
                     for event in json_event_generator(line.rstrip()):
-                        event['source'] = 'openvpn-cloud-connexa'
+                        event['source'] = 'CloudConnexa'
                         content.append(event)
 
                 except json.JSONDecodeError as Einst:
@@ -52,7 +62,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
     def get_alert_msg(self, aws_account_id, log_key, event, error_msg=""):
         """ Override to send the json read from the bucklet for OpenVPN entries. """
         debug(f"+++ AWSOpenVPNCloudConnexaBucket:get_alert_msg {aws_account_id}, {log_key}, {event}, {error_msg};", 3)
-        msg = event #TODO:check me
+        msg = event.copy()
         msg.update(
             {
                 'aws': {
@@ -71,4 +81,4 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             )
         debug(f"+++ AWSOpenVPNCloudConnexaBucketget_alert_msg return {msg}", 3)
         return msg
-    
+        
