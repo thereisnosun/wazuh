@@ -267,12 +267,18 @@
       <description>CloudConnexa $(cloudId) WARN: $(initiator) Client conected more than 10 times during 60 seconds. Client UUID '$(log.clientUUID)'</description>
     </rule>
 
-    <!-- Frequent IDS events with priority 1 -->
-    <rule id="93060" level="10" frequency="10" timeframe="60">
+    <!-- IDS events with priority 1 -->
+    <rule id="93060" level="8">
       <if_matched_sid>93002</if_matched_sid>
+      <field name="priority">1</field>
+      <description>CloudConnexa $(cloudId) BLOCKED: $(initiator) Cyber Shield Traffic Filtering blocked traffic to $(log.destinationIp):$(log.destinationPort) from $(log.sourceIp):$(log.sourcePort) over $(log.protocol) for categoty '$(log.category)' priority '$(log.priority)', classification '$(log.classification)' rule $(log.signatureId):$(log.eventName)  </description>
+    </rule>
+    
+    <!-- Frequent IDS events with priority 1 -->
+    <rule id="93061" level="10" frequency="10" timeframe="60">
+      <if_matched_sid>93060</if_matched_sid>
       <same_field>initiator</same_field>
       <same_field>log.signatureId</same_field>
-      <field name="priority">1</field>
       <description>CloudConnexa $(cloudId) WARN: $(initiator) Cyber Shield Traffic Filtering blocked traffic for 10 times during 60 seconds from $(log.sourceIp) for priority '$(log.priority)', classification '$(log.classification)' rule $(log.signatureId):$(log.eventName) </description>
     </rule>
 
