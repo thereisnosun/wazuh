@@ -10,7 +10,7 @@ import json
 import os
 from datetime import datetime, timezone
 
-from setuptools import setup, find_packages
+from setuptools import setup, find_namespace_packages
 from setuptools.command.install import install
 
 
@@ -36,18 +36,17 @@ class InstallCommand(install):
                        'installation_date': datetime.utcnow().replace(tzinfo=timezone.utc).strftime(
                            '%a %b %d %H:%M:%S UTC %Y')
                        }, f)
-        # install.run(self)  # OR: install.do_egg_install(self)
-        install.do_egg_install(self)
+        install.run(self)
 
 
 setup(name='wazuh',
-      version='4.6.0',
+      version='4.8.0',
       description='Wazuh control with Python',
       url='https://github.com/wazuh',
       author='Wazuh',
       author_email='hello@wazuh.com',
       license='GPLv2',
-      packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
+      packages=find_namespace_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
       package_data={'wazuh': ['core/wazuh.json', 'core/cluster/cluster.json', 'rbac/default/*.yaml']},
       include_package_data=True,
       install_requires=[],

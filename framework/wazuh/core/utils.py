@@ -112,7 +112,7 @@ def process_array(array: list, search_text: str = None, complementary_search: bo
                   search_in_fields: list = None, select: list = None, sort_by: list = None,
                   sort_ascending: bool = True, allowed_sort_fields: list = None, offset: int = 0, limit: int = None,
                   q: str = '', required_fields: list = None, allowed_select_fields: list = None,
-                  filters: dict = None) -> dict:
+                  filters: dict = None, distinct: bool = False) -> dict:
     """Process a Wazuh framework data array.
 
     Parameters
@@ -145,6 +145,8 @@ def process_array(array: list, search_text: str = None, complementary_search: bo
         List of fields allowed to select from.
     filters : dict
         Defines required field filters. Format: {"field1":"value1", "field2":["value2","value3"]}
+    distinct : bool
+        Look for distinct values.
 
     Returns
     -------
@@ -152,14 +154,15 @@ def process_array(array: list, search_text: str = None, complementary_search: bo
         Dictionary: {'items': Processed array, 'totalItems': Number of items, before applying offset and limit)}
     """
     if not array:
-        return {'items': list(), 'totalItems': 0}
-
+        return {'items': [], 'totalItems': 0}
+    
     if isinstance(filters, dict) and len(filters.keys()) > 0:
-        new_array = list()
+        new_array = []
         for element in array:
             for key, value in filters.items():
                 if element[key] in value:
                     new_array.append(element)
+                    break
 
         array = new_array
 
@@ -177,8 +180,18 @@ def process_array(array: list, search_text: str = None, complementary_search: bo
         array = filter_array_by_query(q, array)
 
     if select:
+        # Do not force the inclusion of any fields when we are looking for distinct values
+        required_fields = set() if distinct else required_fields
         array = select_array(array, select=select, required_fields=required_fields,
                              allowed_select_fields=allowed_select_fields)
+
+    if distinct:
+        distinct_array = []
+        for element in array:
+            if element not in distinct_array:
+                distinct_array.append(element)
+
+        array = distinct_array
 
     return {'items': cut_array(array, offset=offset, limit=limit), 'totalItems': len(array)}
 
@@ -872,33 +885,96 @@ def check_remote_commands(data: str):
         check_section(command_section, section='wodle_command', split_section='<wodle name=\"command\">')
 
 
-def check_disabled_limits_in_conf(data):
-    """Check if Wazuh limits are allowed.
+def check_wazuh_limits_unchanged(new_conf, original_conf):
+    """Check if Wazuh limits remain unchanged.
 
     Parameters
     ----------
-    data : str
-        Configuration file.
+    new_conf : str
+        New configuration file.
+    original_conf : str
+        Original configuration file.
 
     Raises
     -------
     WazuhError(1127)
-        Raised if one of the disabled limits is present in the configuration to upload.
+        Raised if one of the protected limits is modified in the configuration to upload.
     """
-    def check_section(section_name):
-        if re.findall(pattern=r'<global>.*<limits>.*<{0}>.*</{0}>.*</limits>.*</global>'.format(section_name),
-                      string=data, flags=re.MULTILINE | re.DOTALL | re.IGNORECASE):
-            raise WazuhError(1127, extra_message=f"global > limits > {section_name}")
 
+    def xml_to_dict(conf, section_name):
+        """Convert XML to list of dictionaries.
+
+        Parameters
+        ----------
+        conf : str
+            XML configuration file.
+        section_name : str
+            Name of the section to extract from the configuration file.
+
+        Returns
+        -------
+        matched_configurations : list
+            Dictionaries with the configuration.
+        """
+        matched_configurations = []
+
+        for str_conf in re.findall(r'<ossec_config>.*?</ossec_config>', conf, re.MULTILINE | re.DOTALL | re.IGNORECASE):
+            ossec_config_section = fromstring(str_conf)
+            for global_section in ossec_config_section.iter('global'):
+                for limits_section in global_section.iter('limits'):
+                    for section in limits_section.iter(section_name):
+                        section_dict = {section.tag: {}}
+                        for config in section:
+                            section_dict[section.tag].update({config.tag: {'attrib': config.attrib,
+                                                                           'value': config.text.strip()}})
+                        matched_configurations.append(section_dict)
+
+        return matched_configurations
+
+    limits_configuration = configuration.api_conf['upload_configuration']['limits']
+    for disabled_limit in [conf for conf, allowed in limits_configuration.items() if not allowed['allow']]:
+        new_limits = xml_to_dict(new_conf, disabled_limit)
+        original_limits = xml_to_dict(original_conf, disabled_limit)
+
+        if len(new_limits) != len(original_limits) or any(x != y for x, y in zip(new_limits, original_limits)):
+            raise WazuhError(1127, extra_message=f"global > limits > {disabled_limit}")
+
+
+def check_agents_allow_higher_versions(data: str):
+    """Check if higher version agents are allowed.
+
+    Parameters
+    ----------
+    data : str
+        Configuration file content.
+    """
     blocked_configurations = configuration.api_conf['upload_configuration']
-    for disabled_limit in [conf for conf, allowed in blocked_configurations['limits'].items() if not allowed['allow']]:
-        check_section(disabled_limit)
+
+    def check_section(agents_regex, split_section):
+        try:
+            for line in agents_regex.findall(data)[0].split(split_section):
+                tag_matches = re.match(r".*<allow_higher_versions>(.*)</allow_higher_versions>.*",
+                                            line, flags=re.MULTILINE | re.DOTALL)
+                if tag_matches and (tag_matches.group(1) == 'yes'):
+                    raise WazuhError(1129)
+        except IndexError:
+            pass
+
+    if not blocked_configurations['agents']['allow_higher_versions']['allow']:
+        remote_section = re.compile(r"<remote>(.*)</remote>", flags=re.MULTILINE | re.DOTALL)
+        check_section(remote_section, split_section='</remote>')
+
+        auth_section = re.compile(r"<auth>(.*)</auth>", flags=re.MULTILINE | re.DOTALL)
+        check_section(auth_section, split_section='</auth>')
 
 
 def load_wazuh_xml(xml_path, data=None):
     if not data:
         with open(xml_path) as f:
-            data = f.read()
+            try:
+                data = f.read()
+            except Exception as e:
+                raise WazuhError(1113, extra_message=str(e))
 
     # -- characters are not allowed in XML comments
     xml_comment = re.compile(r"(<!--(.*?)-->)", flags=re.MULTILINE | re.DOTALL)
@@ -1347,7 +1423,8 @@ class WazuhDBQuery(object):
         self.count = count
         self.data = get_data
         self.total_items = 0
-        self.min_select_fields = min_select_fields
+        # Do not include any fields when we are looking for distinct values
+        self.min_select_fields = set() if distinct else min_select_fields
         self.query_operators = {"=": "=", "!=": "!=", "<": "<", ">": ">", "~": 'LIKE'}
         self.query_separators = {',': 'OR', ';': 'AND', '': ''}
         self.special_characters = "\'\""
@@ -1365,9 +1442,9 @@ class WazuhDBQuery(object):
             # Operator: looks for '=', '!=', '<', '>' or '~'.
             rf"([{''.join(self.query_operators.keys())}]{{1,2}})" +
             # Value: A string.
-            r"((?:(?:\((?:\[[\[\]\w _\-.,:?\\/'\"=@%<>{}]*]|[\[\]\w _\-.:?\\/'\"=@%<>{}]*)\))*"
-            r"(?:\[[\[\]\w _\-.,:?\\/'\"=@%<>{}]*]|[\[\]\w _\-.:?\\/'\"=@%<>{}]+)"
-            r"(?:\((?:\[[\[\]\w _\-.,:?\\/'\"=@%<>{}]*]|[\[\]\w _\-.:?\\/'\"=@%<>{}]*)\))*)+)" +
+            r"((?:(?:\((?:\[[\[\]\w _\-.,:?\\/'\"=@%<>{}]*]|[\[\]\w _\-.:?\\/'\"=@%<>{}$]*)\))*"
+            r"(?:\[[\[\]\w _\-.,:?\\/'\"=@%<>{}]*]|[\[\]\w _\-.:?\\/'\"=@%<>{}$]+)"
+            r"(?:\((?:\[[\[\]\w _\-.,:?\\/'\"=@%<>{}]*]|[\[\]\w _\-.:?\\/'\"=@%<>{}$]*)\))*)+)"
             # A ) character.
             r"(\))?" +
             # Separator: looks for ';', ',' or nothing.
@@ -1901,7 +1978,10 @@ def validate_wazuh_xml(content: str, config_file: bool = False):
         # Check if remote commands are allowed if it is a configuration file
         if config_file:
             check_remote_commands(final_xml)
-            check_disabled_limits_in_conf(final_xml)
+            with open(common.OSSEC_CONF, 'r') as f:
+                current_xml = f.read()
+            check_wazuh_limits_unchanged(final_xml, current_xml)
+            check_agents_allow_higher_versions(final_xml)
         # Check xml format
         load_wazuh_xml(xml_path='', data=final_xml)
     except ExpatError:
@@ -1930,6 +2010,8 @@ def upload_file(content: str, file_path: str, check_xml_formula_values: bool = T
         Error reading file.
     WazuhInternalError(1016)
         Error moving file.
+    WazuhError(1006)
+        Permision error accessing File or Directory.
 
     Returns
     -------
@@ -1964,15 +2046,17 @@ def upload_file(content: str, file_path: str, check_xml_formula_values: bool = T
             final_file = escape_formula_values(content) if check_xml_formula_values else content
             tmp_file.write(final_file)
         chmod(tmp_file_path, 0o660)
-    except IOError:
-        raise WazuhInternalError(1005)
+    except IOError as exc:
+        raise WazuhInternalError(1005) from exc
 
     # Move temporary file to group folder
     try:
         new_conf_path = path.join(common.WAZUH_PATH, file_path)
         safe_move(tmp_file_path, new_conf_path, ownership=(common.wazuh_uid(), common.wazuh_gid()), permissions=0o660)
-    except Error:
-        raise WazuhInternalError(1016)
+    except PermissionError as exc:
+        raise WazuhError(1006) from exc
+    except Error as exc:
+        raise WazuhInternalError(1016) from exc
 
     return results.WazuhResult({'message': 'File was successfully updated'})
 

@@ -331,9 +331,9 @@ constexpr auto PACKAGES_SQL_STATEMENT
     format TEXT,
     checksum TEXT,
     item_id TEXT,
-    PRIMARY KEY (name,version,architecture)) WITHOUT ROWID;)"
+    PRIMARY KEY (name,version,architecture,format,location)) WITHOUT ROWID;)"
 };
-static const std::vector<std::string> PACKAGES_ITEM_ID_FIELDS{"name", "version", "architecture"};
+static const std::vector<std::string> PACKAGES_ITEM_ID_FIELDS{"name", "version", "architecture", "format", "location"};
 
 constexpr auto PACKAGES_SYNC_CONFIG_STATEMENT
 {
@@ -1476,11 +1476,11 @@ nlohmann::json Syscollector::getPortsData()
     constexpr auto PORT_LISTENING_STATE { "listening" };
     constexpr auto TCP_PROTOCOL { "tcp" };
     constexpr auto UDP_PROTOCOL { "udp" };
-    const auto& data { m_spInfo->ports() };
+    auto data(m_spInfo->ports());
 
     if (!data.is_null())
     {
-        for (auto item : data)
+        for (auto& item : data)
         {
             const auto protocol { item.at("protocol").get_ref<const std::string&>() };
 

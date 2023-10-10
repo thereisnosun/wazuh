@@ -11,7 +11,6 @@ from wazuh.core.common import MAX_SOCKET_BUFFER_SIZE, WAZUH_VERSION, AGENT_NAME_
 GENERIC_ERROR_MSG = "Wazuh Internal Error. See log for more detail"
 DOCU_VERSION = 'current' if WAZUH_VERSION == '' else '.'.join(WAZUH_VERSION.split('.')[:2]).lstrip('v')
 
-
 class WazuhException(Exception):
     """
     Wazuh Exception object.
@@ -117,10 +116,15 @@ class WazuhException(Exception):
         1126: {'message': 'Error updating ossec configuration',
                'remediation': 'Please, ensure `WAZUH_PATH/etc/ossec.conf` has the proper permissions and ownership.'
                },
-        1127: {'message': 'Forbidden section detected',
-               'remediation': 'To solve this issue, please enable the section in the API settings: '
+        1127: {'message': 'Protected section was modified',
+               'remediation': 'To solve this, either revert the changes made to this section or disable the protection '
+                              'in the API settings: '
                               f"https://documentation.wazuh.com/{DOCU_VERSION}/user-manual/api/configuration.html"},
         1128: {'message': 'Invalid configuration for the given component'},
+        1129: {'message': 'Higher version agents detected',
+               'remediation': f'To solve this issue, please enable agents higher versions in the API settings: '
+                              f'https://documentation.wazuh.com/{DOCU_VERSION}/user-manual/api/'
+                              f'configuration.html#agents'},
 
         # Rule: 1200 - 1299
         1200: {'message': 'Error reading rules from `WAZUH_HOME/etc/ossec.conf`',
@@ -150,6 +154,26 @@ class WazuhException(Exception):
                'remediation': f'Please, visit the official documentation (https://documentation.wazuh.com/'
                               f'{DOCU_VERSION}/user-manual/reference/ossec-conf/index.html)'
                               ' to get more information about how to configure the rules'
+               },
+        1209: {'message': 'Invalid relative directory. A \'rule_dir\' tag must '
+                          'be declared in ossec.conf ruleset section.',
+               'remediation': f'Please, visit the official documentation '
+                              f'(https://documentation.wazuh.com/' 
+                              f'{DOCU_VERSION}/user-manual/reference/ossec-conf/ruleset.html)'
+                              ' to get more information about the rules'
+        },
+        1210: {'message': 'Uploading, updating or deleting default rules is not allowed.',
+               'remediation': f'Please, visit the official documentation '
+                              f'(https://documentation.wazuh.com/' 
+                              f'{DOCU_VERSION}/user-manual/ruleset/index.html)'
+                              ' to get more information about the rules'
+        },
+        1211: {'message': 'Invalid relative directory. A \'rule_dir\' tag is declared in ossec.conf '
+                          'ruleset section, but the directory does not exist.',
+               'remediation': f'Please, visit the official documentation'
+                               '(https://documentation.wazuh.com/'
+                              f'{DOCU_VERSION}/user-manual/reference/ossec-conf/ruleset.html)'
+                              ' to get more information about the rules'
                },
 
         # Stats: 1300 - 1399
@@ -207,8 +231,29 @@ class WazuhException(Exception):
                'remediation': 'Please, use GET /decoders/files to list all available decoders'
                },
         1504: {'message': 'The decoder does not exist or you do not have permission to see it',
-               'remediation': f'Please, visit the official documentation (https://documentation.wazuh.com/'
+               'remediation': f'Please, visit the official documentation '
+                              f'(https://documentation.wazuh.com/'
                               f'{DOCU_VERSION}/user-manual/reference/ossec-conf/index.html)'
+                              ' to get more information about the decoders'
+               },
+        1505: {'message': 'Invalid relative directory. A \'decoder_dir\' '
+                          'tag must be declared in ossec.conf ruleset section.',
+               'remediation': f'Please, visit the official documentation'
+                               '(https://documentation.wazuh.com/'
+                              f'{DOCU_VERSION}/user-manual/reference/ossec-conf/ruleset.html)'
+                              ' to get more information about the decoders'
+               },
+        1506: {'message': 'Uploading, updating or deleting default decoders is not allowed.',
+               'remediation': f'Please, visit the official documentation'
+                               '(https://documentation.wazuh.com/'
+                              f'{DOCU_VERSION}/user-manual/ruleset/index.html)'
+                              ' to get more information about the decoders'
+               },
+        1507: {'message': 'Invalid relative directory. A \'decoder_dir\' tag is declared '
+                          'in ossec.conf ruleset section, but the directory does not exist.',
+               'remediation': f'Please, visit the official documentation'
+                               '(https://documentation.wazuh.com/'
+                              f'{DOCU_VERSION}/user-manual/reference/ossec-conf/ruleset.html)'
                               ' to get more information about the decoders'
                },
 
@@ -216,7 +261,11 @@ class WazuhException(Exception):
         1603: 'Invalid status. Valid statuses are: all, solved and outstanding',
         1650: 'Active response - Command not specified',
 
-        1652: 'Active response - Unable to run command',
+        1652: {'message': 'The command used is not defined in the configuration.',
+               'remediation': f'Please, visit the official documentation (https://documentation.wazuh.com/'
+                              f'{DOCU_VERSION}/user-manual/capabilities/active-response/how-to-configure.html)'
+                              'to get more information'
+               },
 
         # Agents: 1700 - 1799
         1701: {'message': 'Agent does not exist',
@@ -534,6 +583,7 @@ class WazuhException(Exception):
                'remediation': f'You can enable it using the following endpoint: https://documentation.wazuh.com/'
                               f'{DOCU_VERSION}/user-manual/api/reference.html#operation/api.controllers.'
                               f'security_controller.edit_run_as'},
+        6005: {'message': 'Maximum number of requests per minute reached'},
 
         # Logtest
         7000: {'message': 'Error trying to get logtest response'},
@@ -583,28 +633,28 @@ class WazuhException(Exception):
         self._cmd_error = cmd_error
         self._dapi_errors = {} if dapi_errors is None else deepcopy(dapi_errors)
 
-        error_details = self.ERRORS[self._code] if not cmd_error else extra_message
-        if isinstance(error_details, dict):
-            code_message, code_remediation = error_details.get('message', ''), error_details.get('remediation', None)
-        else:
-            code_message, code_remediation = error_details, None
+        if not cmd_error and self._code in self.ERRORS:
+            error_details = self.ERRORS[self._code]
+            if isinstance(error_details, dict):
+                code_message, code_remediation = error_details.get('message', ''), error_details.get('remediation', None)
+            else:
+                code_message, code_remediation = error_details, None
 
-        if not cmd_error:
             if extra_message:
                 if isinstance(extra_message, dict):
                     self._message = code_message.format(**extra_message)
                 else:
-                    self._message = "{0}: {1}".format(code_message, extra_message)
+                    self._message = f"{code_message}: {extra_message}"
             else:
                 self._message = code_message
+            self._remediation = code_remediation if extra_remediation is None \
+                else f"{code_remediation}: {extra_remediation}"
         else:
             self._message = extra_message
-
-        self._remediation = code_remediation if extra_remediation is None \
-            else f"{code_remediation}: {extra_remediation}"
+            self._remediation = None
 
     def __str__(self):
-        return "Error {0} - {1}".format(self._code, self._message)
+        return f"Error {self._code} - {self._message}"
 
     def __repr__(self):
         return repr(self.to_dict())

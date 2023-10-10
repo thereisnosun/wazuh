@@ -33,7 +33,7 @@ unsigned int hourly_alerts;
 static pthread_mutex_t do_diff_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Hourly alerts mutex */
-static pthread_mutex_t hourly_alert_mutex = PTHREAD_MUTEX_INITIALIZER;
+extern pthread_mutex_t hourly_alert_mutex;
 
 w_queue_t * writer_queue_log_fts;
 
@@ -758,6 +758,13 @@ int Rules_OP_ReadRules(const char *rulefile, RuleNode **r_node, ListNode **l_nod
                                                           config_ruleinfo->sigid, log_msg);
 
                     } else if (strcasecmp(rule_tmp_params.rule_arr_opt[k]->element, xml_field) == 0) {
+
+                        if (Config.decoder_order_size <= ifield) {
+                            smerror(log_msg, "Rule %d has exceeded the maximum number of allowed fields",
+                                   config_ruleinfo->sigid);
+
+                            goto cleanup;
+                        }
 
                         if (!w_check_attr_field_name(rule_tmp_params.rule_arr_opt[k],
                                                      &config_ruleinfo->fields[ifield],
@@ -2159,7 +2166,7 @@ RuleInfo *zerorulemember(int id, int level, int maxsize, int frequency,
     ruleinfo_pt->program_name = NULL;
     ruleinfo_pt->action = NULL;
     ruleinfo_pt->location = NULL;
-    os_calloc(Config.decoder_order_size, sizeof(FieldInfo*), ruleinfo_pt->fields);
+    os_calloc(Config.decoder_order_size + 1, sizeof(FieldInfo*), ruleinfo_pt->fields);
 
     ruleinfo_pt->same_fields = NULL;
     ruleinfo_pt->not_same_fields = NULL;
@@ -2174,8 +2181,6 @@ RuleInfo *zerorulemember(int id, int level, int maxsize, int frequency,
     ruleinfo_pt->event_search = NULL;
     ruleinfo_pt->compiled_rule = NULL;
     ruleinfo_pt->lists = NULL;
-
-    ruleinfo_pt->prev_rule = NULL;
 
     ruleinfo_pt->internal_saving = false;
 
@@ -3112,8 +3117,8 @@ RuleInfo * OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
                                              fts_store, save_fts_value,
                                              rules_debug_list);
             if (child_rule != NULL) {
-                if (!child_rule->prev_rule) {
-                    child_rule->prev_rule = rule;
+                if (!lf->prev_rule) {
+                    lf->prev_rule = rule;
                 }
                 return (child_rule);
             }
@@ -3127,9 +3132,7 @@ RuleInfo * OS_CheckIfRuleMatch(struct _Eventinfo *lf, EventList *last_events,
         return (NULL);
     }
 
-    w_mutex_lock(&hourly_alert_mutex);
-    hourly_alerts++;
-    w_mutex_unlock(&hourly_alert_mutex);
+    w_guard_mutex_variable(hourly_alert_mutex, (hourly_alerts++));
     w_mutex_lock(&rule->mutex);
     rule->firedtimes++;
     lf->r_firedtimes = rule->firedtimes;

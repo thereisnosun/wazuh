@@ -24,6 +24,8 @@ from wazuh.core.common import DECIMALS_DATE_FORMAT
 from wazuh.core.utils import get_utc_now
 from wazuh.core.wdb import AsyncWazuhDBConnection
 
+DEFAULT_DATE: str = 'n/a'
+
 
 class ReceiveIntegrityTask(c_common.ReceiveFileTask):
     """
@@ -185,14 +187,18 @@ class MasterHandler(server.AbstractServerHandler, c_common.WazuhCommon):
         self.extra_valid_requested = False
 
         # Sync status variables. Used in cluster_control -i and GET/cluster/healthcheck.
-        default_date = utils.get_date_from_timestamp(0)
-        self.integrity_check_status = {'date_start_master': default_date, 'date_end_master': default_date}
-        self.integrity_sync_status = {'date_start_master': default_date, 'tmp_date_start_master': default_date,
-                                      'date_end_master': default_date, 'total_extra_valid': 0,
+        self.integrity_check_status = {'date_start_master': DEFAULT_DATE, 'date_end_master': DEFAULT_DATE}
+        self.integrity_sync_status = {'date_start_master': DEFAULT_DATE, 'tmp_date_start_master': DEFAULT_DATE,
+                                      'date_end_master': DEFAULT_DATE, 'total_extra_valid': 0,
                                       'total_files': {'missing': 0, 'shared': 0, 'extra': 0, 'extra_valid': 0}}
-        self.sync_agent_info_status = {'date_start_master': default_date, 'date_end_master': default_date,
+        self.sync_agent_info_status = {'date_start_master': DEFAULT_DATE, 'date_end_master': DEFAULT_DATE,
                                        'n_synced_chunks': 0}
-        self.send_agent_groups_status = {'date_start': 0.0}
+        self.send_agent_groups_status = {'date_start': DEFAULT_DATE,
+                                         'date_end': DEFAULT_DATE,
+                                         'n_synced_chunks': 0}
+        self.send_full_agent_groups_status = {'date_start': DEFAULT_DATE,
+                                              'date_end': DEFAULT_DATE,
+                                              'n_synced_chunks': 0}
 
         # Variables which will be filled when the worker sends the hello request.
         self.version = ""
@@ -224,6 +230,8 @@ class MasterHandler(server.AbstractServerHandler, c_common.WazuhCommon):
                                                    not key.startswith('tmp')},
                            'sync_agent_info_free': self.sync_agent_info_free,
                            'last_sync_agentinfo': self.sync_agent_info_status,
+                           'last_sync_agentgroup': self.send_agent_groups_status,
+                           'last_sync_full_agentgroup': self.send_full_agent_groups_status,
                            'last_keep_alive': self.last_keepalive}
                 }
 
@@ -257,11 +265,11 @@ class MasterHandler(server.AbstractServerHandler, c_common.WazuhCommon):
             return self.process_sync_error_from_worker(data)
         elif command == b'syn_w_g_e':
             logger = self.task_loggers['Agent-groups send']
-            start_time = self.send_agent_groups_status['date_start']
+            start_time = datetime.strptime(self.send_agent_groups_status['date_start'], DECIMALS_DATE_FORMAT)
             return c_common.end_sending_agent_information(logger, start_time, data.decode())
         elif command == b'syn_wgc_e':
             logger = self.task_loggers['Agent-groups send full']
-            start_time = self.send_agent_groups_status['date_start']
+            start_time = datetime.strptime(self.send_full_agent_groups_status['date_start'], DECIMALS_DATE_FORMAT)
             return c_common.end_sending_agent_information(logger, start_time, data.decode())
         elif command == b'syn_w_g_err':
             logger = self.task_loggers['Agent-groups send']
@@ -279,16 +287,14 @@ class MasterHandler(server.AbstractServerHandler, c_common.WazuhCommon):
             return cmd, json.dumps(res).encode()
         elif command == b'get_health':
             cmd, res = self.get_health(json.loads(data))
-            return cmd, json.dumps(
-                res, default=lambda o: "n/a" if isinstance(o, datetime) and o == utils.get_date_from_timestamp(0) else
-                (o.__str__() if isinstance(o, datetime) else None)).encode()
+            return cmd, json.dumps(res).encode()
         elif command == b'sendsync':
             self.server.sendsync.add_request(self.name.encode() + b'*' + data)
             return b'ok', b'Added request to SendSync requests queue'
         else:
             return super().process_request(command, data)
 
-    async def execute(self, command: bytes, data: bytes, wait_for_complete: bool) -> Dict:
+    async def execute(self, command: bytes, data: bytes, wait_for_complete: bool = False) -> Dict:
         """Send DAPI request and wait for response.
 
         Send a distributed API request and wait for a response in command dapi_res. Methods here are the same
@@ -650,7 +656,7 @@ class MasterHandler(server.AbstractServerHandler, c_common.WazuhCommon):
         This method is activated when the worker node requests this information to the master node.
         """
         logger = self.task_loggers['Agent-groups send full']
-        start_time = get_utc_now().timestamp()
+        start_time = get_utc_now()
         logger.info('Starting.')
 
         sync_object = c_common.SyncWazuhdb(manager=self, logger=logger, cmd=b'syn_g_m_w_c',
@@ -663,7 +669,13 @@ class MasterHandler(server.AbstractServerHandler, c_common.WazuhCommon):
                                            set_payload={'mode': 'override', 'sync_status': 'synced'})
 
         local_agent_groups_information = await sync_object.retrieve_information()
-        await sync_object.sync(start_time=start_time, chunks=local_agent_groups_information)
+        await sync_object.sync(start_time=start_time.timestamp(), chunks=local_agent_groups_information)
+        end_time = get_utc_now()
+
+        # Updates Agent groups full status
+        self.send_full_agent_groups_status['date_start'] = start_time.strftime(DECIMALS_DATE_FORMAT)
+        self.send_full_agent_groups_status['date_end'] = end_time.strftime(DECIMALS_DATE_FORMAT)
+        self.send_full_agent_groups_status['n_synced_chunks'] = len(local_agent_groups_information)
 
     async def send_agent_groups_information(self, groups_info: list):
         """Send group information to the worker node.
@@ -676,7 +688,7 @@ class MasterHandler(server.AbstractServerHandler, c_common.WazuhCommon):
         logger = self.task_loggers['Agent-groups send']
         try:
             logger.info("Starting.")
-            self.send_agent_groups_status['date_start'] = get_utc_now().timestamp()
+            self.send_agent_groups_status['date_start'] = get_utc_now().strftime(DECIMALS_DATE_FORMAT)
             await self.agent_groups.sync(start_time=self.send_agent_groups_status['date_start'], chunks=groups_info)
         except Exception as e:
             logger.error(f'Error sending agent-groups information to {self.name}: {e}')
@@ -689,14 +701,13 @@ class MasterHandler(server.AbstractServerHandler, c_common.WazuhCommon):
         logger : Logger object
             Logger to use.
         """
-        self.integrity_sync_status['date_end_master'] = utils.get_utc_now()
-        logger.info("Finished in {:.3f}s.".format((self.integrity_sync_status['date_end_master'] -
-                                                   self.integrity_sync_status['tmp_date_start_master'])
-                                                  .total_seconds()))
+        date_end_master = utils.get_utc_now()
+        tmp_date_start_master = self.integrity_sync_status['tmp_date_start_master']
+
+        logger.info("Finished in {:.3f}s.".format((date_end_master - tmp_date_start_master).total_seconds()))
         self.integrity_sync_status['date_start_master'] = \
             self.integrity_sync_status['tmp_date_start_master'].strftime(DECIMALS_DATE_FORMAT)
-        self.integrity_sync_status['date_end_master'] = \
-            self.integrity_sync_status['date_end_master'].strftime(DECIMALS_DATE_FORMAT)
+        self.integrity_sync_status['date_end_master'] = date_end_master.strftime(DECIMALS_DATE_FORMAT)
 
     async def integrity_check(self, task_id: str, received_file: asyncio.Event):
         """Compare master and worker files and start Integrity sync if they differ.

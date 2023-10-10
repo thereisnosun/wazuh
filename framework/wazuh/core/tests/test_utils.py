@@ -217,70 +217,83 @@ def test_cut_array_ko(limit, offset, expected_exception):
         utils.cut_array(array=['one', 'two', 'three'], limit=limit, offset=offset)
 
 
-@pytest.mark.parametrize('array, q, filters, limit, search_text, select, sort_by, expected_items, expected_total_items',
-                         [
-                             # Test cases with queries
-                             ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'},
-                               {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}],
-                              'datetime=2017-10-25T14:48:53.732000Z', None, None, None, None, None,
-                              [{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'}], 1),
+@pytest.mark.parametrize(
+    'array, q, filters, limit, search_text, select, sort_by, distinct, expected_items, expected_total_items',
+    [
+        # Test cases with queries
+        ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'},
+          {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}],
+         'datetime=2017-10-25T14:48:53.732000Z', None, None, None, None, None, False,
+         [{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'}], 1),
 
-                             ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'},
-                               {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}],
-                              'datetime<2017-10-26', None, None, None, None, None,
-                              [{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'}], 1),
+        ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'},
+          {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}],
+         'datetime<2017-10-26', None, None, None, None, None, False,
+         [{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'}], 1),
 
-                             ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'},
-                               {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}],
-                              'datetime>2019-10-26,datetime<2017-10-26', None, None, None, None, None,
-                              [{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'}], 1),
+        ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'},
+          {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}],
+         'datetime>2019-10-26,datetime<2017-10-26', None, None, None, None, None, False,
+         [{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'}], 1),
 
-                             ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'},
-                               {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}],
-                              'datetime>2017-10-26;datetime<2018-05-15T12:34:12.644000Z', None, None, None, None, None,
-                              [{'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}], 1),
+        ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53.732000Z'},
+          {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}],
+         'datetime>2017-10-26;datetime<2018-05-15T12:34:12.644000Z', None, None, None, None, None, False,
+         [{'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z'}], 1),
 
-                             ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53Z'},
-                               {'item': 'value_1', 'datetime': '2018-05-15T12:34:12Z'}],
-                              'datetime>2017-10-26;datetime<2018-05-15T12:34:12.001000Z', None, None, None, None, None,
-                              [{'item': 'value_1', 'datetime': '2018-05-15T12:34:12Z'}], 1),
+        ([{'item': 'value_2', 'datetime': '2017-10-25T14:48:53Z'},
+          {'item': 'value_1', 'datetime': '2018-05-15T12:34:12Z'}],
+         'datetime>2017-10-26;datetime<2018-05-15T12:34:12.001000Z', None, None, None, None, None, False,
+         [{'item': 'value_1', 'datetime': '2018-05-15T12:34:12Z'}], 1),
 
-                             # Test cases with filters, limit and search
-                             ([{'item': 'value_1'}, {'item': 'value_2'}, {'item': 'value_3'}],
-                              None, {'item': 'value_1'}, 1, None, None, None,
-                              [{'item': 'value_1'}], 1),
+        # Test cases with filters, limit and search
+        ([{'item': 'value_1', 'some': 't'}, {'item': 'value_2', 'some': 'a'}, {'item': 'value_3', 'some': 'b'}],
+         None, {'item': 'value_1', 'some': 't'}, 1, None, None, None, False,
+         [{'item': 'value_1', 'some': 't'}], 1),
 
-                             ([{'item': 'value_1'}, {'item': 'value_1'}, {'item': 'value_3'}],
-                              None, None, 1, 'e_1', None, None,
-                              [{'item': 'value_1'}], 2),
+        ([{'item': 'value_1'}, {'item': 'value_1'}, {'item': 'value_3'}],
+         None, None, 1, 'e_1', None, None, False,
+         [{'item': 'value_1'}], 2),
 
-                             ([{'item': 'value_1'}, {'item': 'value_1'}, {'item': 'value_3'}],
-                              None, None, 2, 'e_1', None, None,
-                              [{'item': 'value_1'}, {'item': 'value_1'}], 2),
+        ([{'item': 'value_1'}, {'item': 'value_1'}, {'item': 'value_3'}],
+         None, None, 2, 'e_1', None, None, False,
+         [{'item': 'value_1'}, {'item': 'value_1'}], 2),
 
-                             # Test cases with sort
-                             ([{'item': 'value_2'}, {'item': 'value_1'}, {'item': 'value_3'}],
-                              None, None, None, None, None, ['item'],
-                              [{'item': 'value_1'}, {'item': 'value_2'}, {'item': 'value_3'}], 3),
+        # Test cases with sort
+        ([{'item': 'value_2'}, {'item': 'value_1'}, {'item': 'value_3'}],
+         None, None, None, None, None, ['item'], False,
+         [{'item': 'value_1'}, {'item': 'value_2'}, {'item': 'value_3'}], 3),
 
-                             # Complex test cases
-                             ([{'item': 'value_1', 'datetime': '2017-10-25T14:48:53.732000Z', 'component': 'framework'},
-                               {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z', 'component': 'API'}],
-                              'datetime~2017', {'item': 'value_1'}, 1, 'frame', None, None,
-                              [{'item': 'value_1', 'datetime': '2017-10-25T14:48:53.732000Z',
-                                'component': 'framework'}], 1),
+        # Test cases with distinct
+        ([{'item': 'value_1', 'component': 'framework'},
+           {'item': 'value_2', 'component': 'API'},
+           {'item': 'value_1', 'component': 'framework'}],
+         None, None, None, None, None, None, True,
+         [{'item': 'value_1', 'component': 'framework'}, {'item': 'value_2', 'component': 'API'}], 2),
+         
+         (['framework', 'API', 'API'],
+         None, None, None, None, None, None, True,
+         ['framework', 'API'], 2),
 
-                             ([{'item': 'value_1', 'datetime': '2017-10-25T14:48:53.732000Z', 'component': 'framework'},
-                               {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z', 'component': 'API'}],
-                              'datetime~2019', {'item': 'value_1'}, 1, None, None, None,
-                              [], 0),
+        # Complex test cases
+        ([{'item': 'value_1', 'datetime': '2017-10-25T14:48:53.732000Z', 'component': 'framework'},
+          {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z', 'component': 'API'}],
+         'datetime~2017', {'item': 'value_1'}, 1, 'frame', None, None, False,
+         [{'item': 'value_1', 'datetime': '2017-10-25T14:48:53.732000Z',
+           'component': 'framework'}], 1),
 
-                             ([{'item': 'value_1', 'datetime': '2017-10-25T14:48:53.732000Z', 'component': 'framework'},
-                               {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z', 'component': 'API'}],
-                              'datetime~2017', {'item': 'value_1'}, 1, None, ['component', 'item'], None,
-                              [{'item': 'value_1', 'component': 'framework'}], 1),
-                         ])
-def test_process_array(array, q, filters, limit, search_text, sort_by, select, expected_items, expected_total_items):
+        ([{'item': 'value_1', 'datetime': '2017-10-25T14:48:53.732000Z', 'component': 'framework'},
+          {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z', 'component': 'API'}],
+         'datetime~2019', {'item': 'value_1'}, 1, None, None, None, False,
+         [], 0),
+
+        ([{'item': 'value_1', 'datetime': '2017-10-25T14:48:53.732000Z', 'component': 'framework'},
+          {'item': 'value_1', 'datetime': '2018-05-15T12:34:12.544000Z', 'component': 'API'}],
+         'datetime~2017', {'item': 'value_1'}, 1, None, ['component', 'item'], None, False,
+         [{'item': 'value_1', 'component': 'framework'}], 1),
+    ])
+def test_process_array(array, q, filters, limit, search_text, sort_by, select, distinct, expected_items,
+                       expected_total_items):
     """Test that the process_array function is working properly with simple and complex examples.
 
     Parameters
@@ -299,13 +312,15 @@ def test_process_array(array, q, filters, limit, search_text, sort_by, select, e
         List of fields to select.
     sort_by : list
         List of fields to sort by.
+    distinct: bool
+        Look for distinct values.
     expected_items : list
         List of items expected after having applied the processing.
     expected_total_items : int
         Total items expected after having applied the processing.
     """
     result = utils.process_array(array=array, filters=filters, limit=limit, offset=0, search_text=search_text,
-                                 select=select, sort_by=sort_by, q=q)
+                                 select=select, sort_by=sort_by, q=q, distinct=distinct)
 
     assert result == {'items': expected_items, 'totalItems': expected_total_items}
 
@@ -662,6 +677,14 @@ def test_load_wazuh_xml():
 
         assert elements_equal(original, result.find('dummy_tag'))
 
+@pytest.mark.parametrize('expected_exception', [
+    (1113)
+])
+def test_load_wazuh_xml_ko(expected_exception):
+    """Test load_wazuh_xml fails gracefully when reading an invalid utf-8 character sequence"""
+    file_path = os.path.join(test_data_path, 'test_load_wazuh_xml_ko/invalid_utf8.xml')
+    with pytest.raises(WazuhException, match=f'.* {expected_exception} .*'):
+        utils.load_wazuh_xml(file_path)
 
 @pytest.mark.parametrize('version1, version2', [
     ('Wazuh v3.5.0', 'Wazuh v3.5.2'),
@@ -1016,7 +1039,26 @@ def test_WazuhDBQuery_protected_add_select_to_query(mock_parse, mock_socket_conn
                 '"https://ubuntu.com/security/CVE-2021-3996","https://ubuntu.com/security/notices/USN-5279-1",'
                 '"https://www.openwall.com/lists/oss-security/2022/01/24/2"]',
        'operator': '=', 'field': 'external_references$0', 'separator': 'OR', 'level': 1},
-      {'value': 'Kernel', 'operator': 'LIKE', 'field': 'name$0', 'separator': '', 'level': 0}])
+      {'value': 'Kernel', 'operator': 'LIKE', 'field': 'name$0', 'separator': '', 'level': 0}]),
+    # Cases with $
+    ('file=/test$/test.txt;(type=file,type=registry_key)',
+     [
+        {"value": "/test$/test.txt", "operator": "=", "field": "file$0", "separator": "AND", "level": 0},
+        {"value": "file", "operator": "=", "field": "type$0", "separator": "OR", "level": 1},
+        {"value": "registry_key", "operator": "=", "field": "type$1", "separator": "", "level": 0}
+     ]),
+    ('file=/$test/test.txt;(type=file,type=registry_key)',
+     [
+         {"value": "/$test/test.txt", "operator": "=", "field": "file$0", "separator": "AND", "level": 0},
+         {"value": "file", "operator": "=", "field": "type$0", "separator": "OR", "level": 1},
+         {"value": "registry_key", "operator": "=", "field": "type$1", "separator": "", "level": 0}
+     ]),
+    ('file=/tes$t/test.txt;(type=file,type=registry_key)',
+     [
+         {"value": "/tes$t/test.txt", "operator": "=", "field": "file$0", "separator": "AND", "level": 0},
+         {"value": "file", "operator": "=", "field": "type$0", "separator": "OR", "level": 1},
+         {"value": "registry_key", "operator": "=", "field": "type$1", "separator": "", "level": 0}
+     ]),
 ])
 @patch('wazuh.core.utils.path.exists', return_value=True)
 @patch('wazuh.core.utils.WazuhDBBackend.connect_to_db')
@@ -1744,10 +1786,11 @@ def test_add_dynamic_detail(detail, value, attribs, details):
         assert details[detail][key] == value
 
 
-@patch('wazuh.core.utils.check_disabled_limits_in_conf')
+@patch('wazuh.core.utils.check_wazuh_limits_unchanged')
 @patch('wazuh.core.utils.check_remote_commands')
+@patch('wazuh.core.utils.check_agents_allow_higher_versions')
 @patch('wazuh.core.manager.common.WAZUH_PATH', new=test_files_path)
-def test_validate_wazuh_xml(mock_remote_commands, mock_disabled_limits):
+def test_validate_wazuh_xml(mock_remote_commands, mock_agents_versions, mock_unchanged_limits):
     """Test validate_wazuh_xml method works and methods inside are called with expected parameters"""
 
     with open(os.path.join(test_files_path, 'test_rules.xml')) as f:
@@ -1758,10 +1801,12 @@ def test_validate_wazuh_xml(mock_remote_commands, mock_disabled_limits):
     with patch('builtins.open', m):
         utils.validate_wazuh_xml(xml_file)
     mock_remote_commands.assert_not_called()
+    mock_agents_versions.assert_not_called()
 
     with patch('builtins.open', m):
         utils.validate_wazuh_xml(xml_file, config_file=True)
     mock_remote_commands.assert_called_once()
+    mock_agents_versions.assert_called_once()
 
 
 @pytest.mark.parametrize('effect, expected_exception', [
@@ -1897,22 +1942,86 @@ def test_get_utc_now():
     assert date == datetime.datetime(1970, 1, 1, 0, 1, tzinfo=datetime.timezone.utc)
 
 
-@pytest.mark.parametrize("configuration", [
-    "<global><limits><eps><whatever>yes</whatever></eps></limits></global>",
-    "<global><logall>no</logall></global><global><limits><eps><whatever>yes</whatever></eps></limits></global>"
+@pytest.mark.parametrize("new_conf, unchanged_limits_conf", [
+    ("<ossec_config><global><limits><eps><maximum>300</maximum><timeframe>5</timeframe></eps></limits></global>"
+     "</ossec_config>", False),
+    ("<ossec_config><global><logall>no</logall></global><global><limits><eps><test>yes</test></eps></limits></global>"
+     "</ossec_config>", False),
+    ("<ossec_config><global><logall>yes</logall><limits><eps><maximum>300</maximum></eps></limits></global>"
+     "</ossec_config>", True),
+    ("<ossec_config><global><logall>yes</logall><limits><eps><maximum>300</maximum></eps></limits></global>"
+     "</ossec_config><ossec_config><global><limits><eps><maximum>300</maximum></eps></limits></global></ossec_config>",
+     False)
 ])
-@pytest.mark.parametrize("limits_conf, expect_exc", [
-    ({'eps': {'allow': True}}, False),
-    ({'eps': {'allow': False}}, True)
+@pytest.mark.parametrize("original_conf", [
+    "<ossec_config><global><limits><eps><maximum>300</maximum></eps></limits></global></ossec_config>"
 ])
-def test_check_disabled_limits_in_conf(configuration, limits_conf, expect_exc):
-    """Test if forbidden limits in the API settings are blocked."""
-    new_conf = utils.configuration.api_conf
-    new_conf['upload_configuration']['limits'].update(limits_conf)
+@pytest.mark.parametrize("limits_conf", [
+    ({'eps': {'allow': True}}),
+    ({'eps': {'allow': False}})
+])
+def test_check_wazuh_limits_unchanged(new_conf, unchanged_limits_conf, original_conf, limits_conf):
+    """Test if ossec.conf limits are protected by the API.
 
-    with patch('wazuh.core.utils.configuration.api_conf', new=new_conf):
-        if expect_exc:
-            with pytest.raises(exception.WazuhError, match=".* 1127 .*"):
-                utils.check_disabled_limits_in_conf(configuration)
+    When 'eps': {'allow': False} is set in the API configuration, the limits in ossec.conf cannot be changed.
+    However, other configuration sections can be added, removed or modified.
+
+    Parameters
+    ----------
+    new_conf : str
+        New ossec.conf to be uploaded.
+    unchanged_limits_conf : bool
+        Whether the limits section in ossec.conf is the same as the original one.
+    original_conf : str
+        Original ossec.conf to be uploaded.
+    limits_conf : dict
+        API configuration for the limits section.
+    """
+    api_conf = utils.configuration.api_conf
+    api_conf['upload_configuration']['limits'].update(limits_conf)
+
+    with patch('wazuh.core.utils.configuration.api_conf', new=api_conf):
+        if limits_conf['eps']['allow'] or unchanged_limits_conf:
+            utils.check_wazuh_limits_unchanged(new_conf, original_conf)
         else:
-            utils.check_disabled_limits_in_conf(configuration)
+            with pytest.raises(exception.WazuhError, match=".* 1127 .*"):
+                utils.check_wazuh_limits_unchanged(new_conf, original_conf)
+
+
+@pytest.mark.parametrize("new_conf", [
+    ("<ossec_config><remote><agents><allow_higher_versions>yes</allow_higher_versions></agents></remote></ossec_config>"),
+    ("<ossec_config><auth><agents><allow_higher_versions>yes</allow_higher_versions></agents></auth></ossec_config>"),
+    ("<ossec_config><remote><agents><allow_higher_versions>no</allow_higher_versions></agents></remote></ossec_config>"),
+    ("<ossec_config><auth><agents><allow_higher_versions>no</allow_higher_versions></agents></auth></ossec_config>"),
+    ("<ossec_config><remote><agents><allow_higher_versions>yes</allow_higher_versions></agents></remote><auth>" \
+     "<agents><allow_higher_versions>yes</allow_higher_versions></agents></auth></ossec_config>"),
+     ("<ossec_config><remote><agents><allow_higher_versions>no</allow_higher_versions></agents></remote><auth>" \
+     "<agents><allow_higher_versions>no</allow_higher_versions></agents></auth></ossec_config>"),
+])
+@pytest.mark.parametrize("agents_conf", [
+    ({'allow_higher_versions': {'allow': True}}),
+    ({'allow_higher_versions': {'allow': False}}),
+])
+def test_agents_allow_higher_versions(new_conf, agents_conf):
+    """Check if ossec.conf agents versions are protected by the API.
+
+    When 'allow_higher_versions': {'allow': False} is set in the API configuration, the agent versions in ossec.conf 
+    cannot be changed. However, other configuration sections can be added, 
+    removed or modified.
+
+    Parameters
+    ----------
+    new_conf : str
+        New ossec.conf to be uploaded.
+    agents_conf : dict
+        API configuration for the agents section.
+    """
+    api_conf = utils.configuration.api_conf
+    api_conf['upload_configuration']['agents'].update(agents_conf)
+
+    with patch('wazuh.core.utils.configuration.api_conf', new=api_conf):
+        if agents_conf['allow_higher_versions']['allow'] or new_conf.find('no') != -1:
+            utils.check_agents_allow_higher_versions(new_conf)
+        else:
+            with pytest.raises(exception.WazuhError, match=".* 1129 .*"):
+                utils.check_agents_allow_higher_versions(new_conf)

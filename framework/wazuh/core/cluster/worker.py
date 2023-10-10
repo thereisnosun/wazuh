@@ -206,7 +206,7 @@ class WorkerHandler(client.AbstractClient, c_common.WazuhCommon):
             return self.setup_sync_integrity(command, data)
         elif command == b'syn_m_a_e':
             logger = self.task_loggers['Agent-info sync']
-            start_time = self.agent_info_sync_status['date_start']
+            start_time = datetime.utcfromtimestamp(self.agent_info_sync_status['date_start'])
             return c_common.end_sending_agent_information(logger, start_time, data.decode())
         elif command == b'syn_m_a_err':
             logger = self.task_loggers['Agent-info sync']
@@ -752,8 +752,8 @@ class WorkerHandler(client.AbstractClient, c_common.WazuhCommon):
                         continue
 
         # Once files are deleted, check and remove subdirectories which are now empty, as specified in cluster.json.
-        directories_to_check = (os.path.dirname(f) for f, data in ko_files['extra'].items()
-                                if cluster_items['files'][data['cluster_item_key']]['remove_subdirs_if_empty'])
+        directories_to_check = set(os.path.dirname(f) for f, data in ko_files['extra'].items()
+                                   if cluster_items['files'][data['cluster_item_key']]['remove_subdirs_if_empty'])
         for directory in directories_to_check:
             try:
                 full_path = os.path.join(common.WAZUH_PATH, directory)

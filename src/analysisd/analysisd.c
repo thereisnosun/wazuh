@@ -28,7 +28,6 @@
 #include "os_net/os_net.h"
 #include "active-response.h"
 #include "config.h"
-#include "limits.h"
 #include "rules.h"
 #include "mitre.h"
 #include "stats.h"
@@ -95,6 +94,9 @@ static int execdq = 0;
 
 /* Active response queue */
 static int arq = 0;
+
+/* Analysisd limits struct */
+limits_t *analysisd_limits;
 
 static unsigned int hourly_events;
 static unsigned int hourly_syscheck;
@@ -213,6 +215,8 @@ static pthread_mutex_t hourly_firewall_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Accumulate mutex */
 static pthread_mutex_t accumulate_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+static pthread_mutex_t current_time_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 /* Reported variables */
 static int reported_syscheck = 0;
 static int reported_syscollector = 0;
@@ -231,6 +235,8 @@ static int reported_eps_drop_hourly = 0;
 pthread_mutex_t decode_syscheck_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t process_event_check_hour_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t process_event_mutex = PTHREAD_MUTEX_INITIALIZER;
+/* Hourly alerts mutex */
+pthread_mutex_t hourly_alert_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Reported mutexes */
 static pthread_mutex_t writer_threads_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -242,6 +248,8 @@ static const char *(month[]) = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 /* CPU Info*/
 static int cpu_cores;
+
+static time_t current_time;
 
 /* Print help statement */
 __attribute__((noreturn))
@@ -809,6 +817,8 @@ int main_analysisd(int argc, char **argv)
     /* Startup message */
     minfo(STARTUP_MSG, (int)getpid());
 
+    w_init_queues();
+
     // Start com request thread
     w_create_thread(asyscom_main, NULL);
 
@@ -925,8 +935,6 @@ void OS_ReadMSG_analysisd(int m_queue)
         mdebug1("Custom output found.!");
     }
 
-    w_init_queues();
-
     int num_decode_event_threads = getDefine_Int("analysisd", "event_threads", 0, 32);
     int num_decode_syscheck_threads = getDefine_Int("analysisd", "syscheck_threads", 0, 32);
     int num_decode_syscollector_threads = getDefine_Int("analysisd", "syscollector_threads", 0, 32);
@@ -986,7 +994,11 @@ void OS_ReadMSG_analysisd(int m_queue)
     }
 
     /* Initialize EPS limits */
-    load_limits(Config.eps.maximum, Config.eps.timeframe, Config.eps.maximum_found);
+    analysisd_limits = init_limits(Config.eps.maximum, Config.eps.timeframe);
+    if (!analysisd_limits->enabled && !Config.eps.maximum_found && analysisd_limits->timeframe > 0) {
+        mwarn("The EPS maximum value is missing in the configuration block.");
+    }
+    w_set_available_credits_prev(Config.eps.maximum * Config.eps.timeframe);
 
     /* Create message handler thread */
     w_create_thread(ad_input_main, &m_queue);
@@ -1065,11 +1077,13 @@ void OS_ReadMSG_analysisd(int m_queue)
     while (1) {
         sleep(1);
 
-        if (limit_reached(NULL)) {
+        unsigned int credits = 0;
+        if (limit_reached(analysisd_limits, &credits)) {
             w_inc_eps_seconds_over_limit();
         }
+        w_set_available_credits_prev(credits);
 
-        update_limits();
+        update_limits(analysisd_limits);
     }
 }
 
@@ -1148,7 +1162,7 @@ static void DumpLogstats()
     fprintf(flog, "%d--%d--%d--%d--%d\n\n",
             thishour,
             hourly_alerts, hourly_events, hourly_syscheck, hourly_firewall);
-    hourly_alerts = 0;
+    w_guard_mutex_variable(hourly_alert_mutex, (hourly_alerts = 0));
     hourly_events = 0;
     hourly_syscheck = 0;
     hourly_firewall = 0;
@@ -1386,7 +1400,7 @@ void * ad_input_main(void * args) {
 
             if (result == -1) {
                 if (!reported_eps_drop) {
-                    if (limit_reached(NULL)) {
+                    if (limit_reached(analysisd_limits, NULL)) {
                         reported_eps_drop = 1;
                         if (!reported_eps_drop_hourly) {
                             mwarn("Queues are full and no EPS credits, dropping events.");
@@ -1394,6 +1408,8 @@ void * ad_input_main(void * args) {
                             mdebug2("Queues are full and no EPS credits, dropping events.");
                         }
                         w_inc_eps_events_dropped();
+                    } else {
+                        w_inc_eps_events_dropped_not_eps();
                     }
                 } else {
                     w_inc_eps_events_dropped();
@@ -1500,7 +1516,7 @@ void * w_decode_syscheck_thread(__attribute__((unused)) void * args){
     while(1) {
         /* Receive message from queue */
         if (msg = queue_pop_ex(decode_queue_syscheck_input), msg) {
-            get_eps_credit();
+            get_eps_credit(analysisd_limits);
 
             int res = 0;
             os_calloc(1, sizeof(Eventinfo), lf);
@@ -1550,7 +1566,7 @@ void * w_decode_syscollector_thread(__attribute__((unused)) void * args){
     while(1) {
         /* Receive message from queue */
         if (msg = queue_pop_ex(decode_queue_syscollector_input), msg) {
-            get_eps_credit();
+            get_eps_credit(analysisd_limits);
 
             os_calloc(1, sizeof(Eventinfo), lf);
             os_calloc(Config.decoder_order_size, sizeof(DynamicField), lf->fields);
@@ -1592,7 +1608,7 @@ void * w_decode_rootcheck_thread(__attribute__((unused)) void * args){
     while(1) {
         /* Receive message from queue */
         if (msg = queue_pop_ex(decode_queue_rootcheck_input), msg) {
-            get_eps_credit();
+            get_eps_credit(analysisd_limits);
 
             os_calloc(1, sizeof(Eventinfo), lf);
             os_calloc(Config.decoder_order_size, sizeof(DynamicField), lf->fields);
@@ -1635,7 +1651,7 @@ void * w_decode_sca_thread(__attribute__((unused)) void * args){
     while(1) {
         /* Receive message from queue */
         if (msg = queue_pop_ex(decode_queue_sca_input), msg) {
-            get_eps_credit();
+            get_eps_credit(analysisd_limits);
 
             os_calloc(1, sizeof(Eventinfo), lf);
             os_calloc(Config.decoder_order_size, sizeof(DynamicField), lf->fields);
@@ -1677,7 +1693,7 @@ void * w_decode_hostinfo_thread(__attribute__((unused)) void * args){
     while(1) {
         /* Receive message from queue */
         if (msg = queue_pop_ex(decode_queue_hostinfo_input), msg) {
-            get_eps_credit();
+            get_eps_credit(analysisd_limits);
 
             os_calloc(1, sizeof(Eventinfo), lf);
             os_calloc(Config.decoder_order_size, sizeof(DynamicField), lf->fields);
@@ -1723,7 +1739,7 @@ void * w_decode_event_thread(__attribute__((unused)) void * args){
     while(1) {
         /* Receive message from queue */
         if (msg = queue_pop_ex(decode_queue_event_input), msg) {
-            get_eps_credit();
+            get_eps_credit(analysisd_limits);
 
             os_calloc(1, sizeof(Eventinfo), lf);
             os_calloc(Config.decoder_order_size, sizeof(DynamicField), lf->fields);
@@ -1774,7 +1790,7 @@ void * w_decode_winevt_thread(__attribute__((unused)) void * args) {
     while(1) {
         /* Receive message from queue */
         if (msg = queue_pop_ex(decode_queue_winevt_input), msg) {
-            get_eps_credit();
+            get_eps_credit(analysisd_limits);
 
             os_calloc(1, sizeof(Eventinfo), lf);
             os_calloc(Config.decoder_order_size, sizeof(DynamicField), lf->fields);
@@ -1816,7 +1832,7 @@ void * w_dispatch_dbsync_thread(__attribute__((unused)) void * args) {
 
     for (;;) {
         if (msg = queue_pop_ex(dispatch_dbsync_input), msg) {
-            get_eps_credit();
+            get_eps_credit(analysisd_limits);
 
             os_calloc(1, sizeof(Eventinfo), lf);
             os_calloc(Config.decoder_order_size, sizeof(DynamicField), lf->fields);
@@ -1847,7 +1863,7 @@ void * w_dispatch_upgrade_module_thread(__attribute__((unused)) void * args) {
 
     while (true) {
         if (msg = queue_pop_ex(upgrade_module_input), msg) {
-            get_eps_credit();
+            get_eps_credit(analysisd_limits);
 
             os_calloc(1, sizeof(Eventinfo), lf);
             os_calloc(Config.decoder_order_size, sizeof(DynamicField), lf->fields);
@@ -2057,8 +2073,9 @@ void * w_process_event_thread(__attribute__((unused)) void * id){
                     */
                 else if ((lf->generate_time - t_currently_rule->time_ignored)
                             < t_currently_rule->ignore_time) {
-                    if (t_currently_rule->prev_rule) {
-                        t_currently_rule = (RuleInfo*)t_currently_rule->prev_rule;
+
+                    if (lf->prev_rule) {
+                        t_currently_rule = (RuleInfo*)lf->prev_rule;
                         w_FreeArray(lf->last_events);
                     } else {
                         break;
@@ -2187,7 +2204,7 @@ void * w_log_rotate_thread(__attribute__((unused)) void * args){
     char mon[4] = {0};
 
     while(1){
-        time(&current_time);
+        w_guard_mutex_variable(current_time_mutex, (current_time = time(NULL)));
         localtime_r(&c_time, &tm_result);
         day = tm_result.tm_mday;
         year = tm_result.tm_year + 1900;
@@ -2374,4 +2391,10 @@ void w_init_queues(){
 
     /* Initialize upgrade module message queue */
     upgrade_module_input = queue_init(getDefine_Int("analysisd", "upgrade_queue_size", 128, 2000000));
+}
+
+time_t w_get_current_time(void) {
+    time_t _current_time;
+    w_guard_mutex_variable(current_time_mutex, (_current_time = current_time));
+    return _current_time;
 }
