@@ -270,7 +270,7 @@
     <!-- IDS events with priority 1 -->
     <rule id="93060" level="8">
       <if_matched_sid>93002</if_matched_sid>
-      <field name="priority">1</field>
+      <field name="log.priority">1</field>
       <description>CloudConnexa $(cloudId) BLOCKED: $(initiator) Cyber Shield Traffic Filtering blocked traffic to $(log.destinationIp):$(log.destinationPort) from $(log.sourceIp):$(log.sourcePort) over $(log.protocol) for categoty '$(log.category)' priority '$(log.priority)', classification '$(log.classification)' rule $(log.signatureId):$(log.eventName)  </description>
     </rule>
     
