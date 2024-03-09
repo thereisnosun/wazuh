@@ -11,7 +11,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         db_table_name = 'cloud_connexa'
         aws_bucket.AWSCustomBucket.__init__(self, db_table_name, **kwargs)
         self.date_format = '%Y-%m-%d'
-        self.check_prefix = True
+        self.check_prefix = False
         debug(f"+++ AWSCloudConnexaBucket initialized", 3)
 
     def get_base_prefix(self):
@@ -36,7 +36,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         content = []
         decoder = json.JSONDecoder()
-        with self.decompress_file(log_key=log_key) as f:
+        with self.decompress_file(self.bucket, log_key=log_key) as f:
             for line in f.readlines():
                 try:
                     for event in json_event_generator(line.rstrip()):
