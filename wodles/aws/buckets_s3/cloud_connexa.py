@@ -33,7 +33,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         if match:
             date_string = match.group(0)
-            return date_string
+            return f'{self.get_full_prefix()}{date_string}'
         else:
             print("rock111: Date not found in the filename.")
 
