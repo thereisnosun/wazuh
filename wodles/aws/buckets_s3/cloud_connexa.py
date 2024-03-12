@@ -74,8 +74,10 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                 only_logs_marker = self.marker_only_logs_after(aws_region, aws_account_id)
                 log_marker_from_db = self._parse_log_marker(filter_marker)
                 debug(f"+++ log_marker_from_db: {log_marker_from_db}", 2)
-
-                filter_args['StartAfter'] = only_logs_marker if only_logs_marker > log_marker_from_db else log_marker_from_db
+                if log_marker_from_db:
+                    filter_args['StartAfter'] = only_logs_marker if only_logs_marker > log_marker_from_db else log_marker_from_db
+                else:
+                    filter_args['StartAfter'] = only_logs_marker
 
             if custom_delimiter:
                 prefix_len = len(filter_args['Prefix'])
