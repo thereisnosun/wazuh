@@ -1,6 +1,7 @@
 
 import json
 import sys
+import re
 
 import aws_bucket
 from aws_tools import debug
@@ -8,7 +9,7 @@ from aws_tools import debug
 class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
     def __init__(self, **kwargs):
-        db_table_name = 'cloud_connexa'
+        db_table_name = 'openvpncloudconnexa'
         aws_bucket.AWSCustomBucket.__init__(self, db_table_name, **kwargs)
         self.date_format = '%Y-%m-%d'
         self.check_prefix = False
@@ -23,23 +24,66 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         return base_path
 
-    def _prepare_log_key(self, key):
-        parts_n = key.find("-")
-        date_part = key[parts_n:]
-        date_components = date_part.split("-")
-        return f'CloudConnexa/{date_components[1]}-{date_components[2]}-{date_components[3]}'
+    def _parse_log_marker(self, key):
+        # Define the regex pattern to match the date part
+        pattern = r'\d{4}-\d{2}-\d{2}'
 
-    def mark_complete(self, aws_account_id, aws_region, log_file, **kwargs):
-        if not self.reparse:
-            try:
-                self.db_cursor.execute(self.sql_mark_complete.format(table_name=self.db_table_name), {
+        # Search for the date pattern in the filename
+        match = re.search(pattern, key)
+
+        if match:
+            date_string = match.group(0)
+            return date_string
+        else:
+            print("rock111: Date not found in the filename.")
+
+    def build_s3_filter_args(self, aws_account_id, aws_region, iterating=False, custom_delimiter='', **kwargs):
+        filter_marker = ''
+        last_key = None
+        if self.reparse:
+            if self.only_logs_after:
+                filter_marker = self.marker_only_logs_after(aws_region, aws_account_id)
+            else:
+                filter_marker = self.marker_custom_date(aws_region, aws_account_id, self.default_date)
+        else:
+            query_last_key = self.db_cursor.execute(
+                self.sql_find_last_key_processed.format(table_name=self.db_table_name), {
                     'bucket_path': self.bucket_path,
-                    'aws_account_id': aws_account_id,
                     'aws_region': aws_region,
-                    'log_key': self._prepare_log_key(log_file['Key']),
-                    'created_date': self.get_creation_date(log_file)})
-            except Exception as e:
-                debug("+++ Error marking log {} as completed: {}".format(log_file['Key'], e), 2)
+                    'prefix': f'{self.prefix}%',
+                    'aws_account_id': aws_account_id,
+                    **kwargs
+                })
+            try:
+                filter_marker = query_last_key.fetchone()[0]
+            except (TypeError, IndexError):
+                # if DB is empty for a region
+                filter_marker = self.marker_only_logs_after(aws_region, aws_account_id) if self.only_logs_after \
+                    else self.marker_custom_date(aws_region, aws_account_id, self.default_date)
+
+        filter_args = {
+            'Bucket': self.bucket,
+            'MaxKeys': 1000,
+            'Prefix': self.get_full_prefix(aws_account_id, aws_region)
+        }
+
+        # if nextContinuationToken is not used for processing logs in a bucket
+        if not iterating:
+            filter_args['StartAfter'] = filter_marker
+            if self.only_logs_after:
+                only_logs_marker = self.marker_only_logs_after(aws_region, aws_account_id)
+                log_marker_from_db = self._parse_log_marker(filter_marker)
+                debug(f"+++ log_marker_from_db: {log_marker_from_db}", 2)
+
+                filter_args['StartAfter'] = only_logs_marker if only_logs_marker > log_marker_from_db else log_marker_from_db
+
+            if custom_delimiter:
+                prefix_len = len(filter_args['Prefix'])
+                filter_args['StartAfter'] = filter_args['StartAfter'][:prefix_len] + \
+                                            filter_args['StartAfter'][prefix_len:].replace('/', custom_delimiter)
+            debug(f"+++ Marker: {filter_args['StartAfter']}", 2)
+
+        return filter_args
 
     def load_information_from_file(self, log_key):
         """Load data from a OpenVPN log files."""
