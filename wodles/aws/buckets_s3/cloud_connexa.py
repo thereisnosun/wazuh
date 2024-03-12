@@ -23,6 +23,23 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         return base_path
 
+    def _prepare_log_key(self, key):
+        parts_n = key.find("-")
+        date_part = key[parts_n:]
+        date_components = date_part.split("-")
+        return f'CloudConnexa/{date_components[1]}-{date_components[2]}-{date_components[3]}'
+
+    def mark_complete(self, aws_account_id, aws_region, log_file, **kwargs):
+        if not self.reparse:
+            try:
+                self.db_cursor.execute(self.sql_mark_complete.format(table_name=self.db_table_name), {
+                    'bucket_path': self.bucket_path,
+                    'aws_account_id': aws_account_id,
+                    'aws_region': aws_region,
+                    'log_key': self._prepare_log_key(log_file['Key']),
+                    'created_date': self.get_creation_date(log_file)})
+            except Exception as e:
+                debug("+++ Error marking log {} as completed: {}".format(log_file['Key'], e), 2)
 
     def load_information_from_file(self, log_key):
         """Load data from a OpenVPN log files."""
