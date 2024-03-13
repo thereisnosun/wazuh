@@ -91,6 +91,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
     def build_s3_filter_args(self, aws_account_id, aws_region, iterating=False, custom_delimiter='', **kwargs):
         filter_marker = ''
+        marker_key = ''
         if self.reparse:
             if self.only_logs_after:
                 filter_marker = self.marker_only_logs_after(aws_region, aws_account_id)
@@ -106,7 +107,8 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                     **kwargs
                 })
             try:
-                filter_marker, marker_key = query_last_key.fetchone()
+                fetch_res =  query_last_key.fetchone()
+                filter_marker, marker_key = fetch_res[0], fetch_res[1]
                 debug(f"+++ fetched markers: {filter_marker} == {marker_key}", 2)
             except (TypeError, IndexError):
                 # if DB is empty for a region
