@@ -21,7 +21,6 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             WHERE
                 bucket_path=:bucket_path AND
                 aws_account_id=:aws_account_id AND
-                aws_region = :aws_region AND
                 log_key LIKE :prefix
             ORDER BY
                 marker_key DESC
@@ -35,6 +34,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                 processed_date 'text' NOT NULL,
                 created_date 'integer' NOT NULL,
                 PRIMARY KEY (bucket_path, aws_account_id, log_key));"""
+        
         self.sql_mark_complete = """
             INSERT INTO {table_name} (
                 bucket_path,
