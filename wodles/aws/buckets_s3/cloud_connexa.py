@@ -13,6 +13,43 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         aws_bucket.AWSCustomBucket.__init__(self, db_table_name, **kwargs)
         self.date_format = '%Y-%m-%d'
         self.check_prefix = False
+        self.sql_find_last_key_processed = """
+            SELECT
+                log_key, marker_key
+            FROM
+                {table_name}
+            WHERE
+                bucket_path=:bucket_path AND
+                aws_account_id=:aws_account_id AND
+                aws_region = :aws_region AND
+                log_key LIKE :prefix
+            ORDER BY
+                marker_key DESC
+            LIMIT 1;"""
+        self.sql_create_table = """
+            CREATE TABLE {table_name} (
+                bucket_path 'text' NOT NULL,
+                aws_account_id 'text' NOT NULL,
+                log_key 'text' NOT NULL,
+                marker_key 'text' NOT NULL,
+                processed_date 'text' NOT NULL,
+                created_date 'integer' NOT NULL,
+                PRIMARY KEY (bucket_path, aws_account_id, log_key));"""
+        self.sql_mark_complete = """
+            INSERT INTO {table_name} (
+                bucket_path,
+                aws_account_id,
+                log_key,
+                marker_key,
+                processed_date,
+                created_date)
+            VALUES (
+                :bucket_path,
+                :aws_account_id,
+                :log_key,
+                :marker_key,
+                DATETIME('now'),
+                :created_date);"""
         debug(f"+++ AWSCloudConnexaBucket initialized", 3)
 
     def get_base_prefix(self):
@@ -33,13 +70,27 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         if match:
             date_string = match.group(0)
-            return f'{self.prefix}{date_string}'
+            return f'{date_string}'
         else:
             print("rock111: Date not found in the filename.")
 
+    def mark_complete(self, aws_account_id, aws_region, log_file, **kwargs):
+        if not self.reparse:
+            try:
+                marker_key = self._parse_log_marker(log_file['Key'])
+                self.db_cursor.execute(self.sql_mark_complete.format(table_name=self.db_table_name), {
+                    'bucket_path': self.bucket_path,
+                    'aws_account_id': aws_account_id,
+                    'aws_region': aws_region,
+                    'log_key': log_file['Key'],
+                    'marker_key': marker_key,
+                    'created_date': self.get_creation_date(log_file)})
+            except Exception as e:
+                debug("+++ Error marking log {} as completed: {}".format(log_file['Key'], e), 2)
+
+
     def build_s3_filter_args(self, aws_account_id, aws_region, iterating=False, custom_delimiter='', **kwargs):
         filter_marker = ''
-        last_key = None
         if self.reparse:
             if self.only_logs_after:
                 filter_marker = self.marker_only_logs_after(aws_region, aws_account_id)
@@ -55,7 +106,8 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                     **kwargs
                 })
             try:
-                filter_marker = query_last_key.fetchone()[0]
+                filter_marker, marker_key = query_last_key.fetchone()
+                debug(f"+++ fetched markers: {filter_marker} == {marker_key}", 2)
             except (TypeError, IndexError):
                 # if DB is empty for a region
                 filter_marker = self.marker_only_logs_after(aws_region, aws_account_id) if self.only_logs_after \
@@ -72,19 +124,15 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             filter_args['StartAfter'] = filter_marker
             if self.only_logs_after:
                 only_logs_marker = self.marker_only_logs_after(aws_region, aws_account_id)
-                log_marker_from_db = self._parse_log_marker(filter_marker)
-                debug(f"+++ log_marker_from_db: {log_marker_from_db}", 2)
-                if log_marker_from_db:
-                    filter_args['StartAfter'] = only_logs_marker if only_logs_marker > log_marker_from_db else log_marker_from_db
-                else:
-                    filter_args['StartAfter'] = only_logs_marker
-
+                filter_args['StartAfter'] = only_logs_marker if only_logs_marker > marker_key else filter_marker
+                
             if custom_delimiter:
                 prefix_len = len(filter_args['Prefix'])
                 filter_args['StartAfter'] = filter_args['StartAfter'][:prefix_len] + \
                                             filter_args['StartAfter'][prefix_len:].replace('/', custom_delimiter)
             debug(f"+++ Marker: {filter_args['StartAfter']}", 2)
 
+        print('rock111: filter_args', filter_args)
         return filter_args
 
     def load_information_from_file(self, log_key):
