@@ -6,6 +6,27 @@ import re
 import aws_bucket
 from aws_tools import debug
 
+
+
+def connexa_time_converter(seconds):
+    mapping = {
+        '9': 'a',
+        '8': 'b',
+        '7': 'c',
+        '6': 'd',
+        '5': 'e',
+        '4': 'f',
+        '3': 'g',
+        '2': 'h',
+        '1': 'i',
+        '0': 'j'
+    }
+    list_str = []
+    for i in str(seconds):
+        list_str.append(mapping.get(i))
+
+    return ''.join(list_str)
+
 class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
     def __init__(self, **kwargs):
@@ -167,10 +188,14 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
     def marker_only_logs_after(self, aws_region, aws_account_id):
         debug(f"+++ AWSOpenVPNCloudConnexaBucket:load_information_from_file {aws_region}/{aws_account_id}", 3)
         debug(f"+++ AWSOpenVPNCloudConnexaBucket:load_information_from_file get_full_prefix={self.get_full_prefix(aws_account_id, aws_region)}", 3)
-        return '{init}{only_logs_after}'.format(
-            init=self.get_full_prefix(aws_account_id, aws_region),
-            only_logs_after=self.only_logs_after.strftime(self.date_format)
-        )
+        # return '{init}{only_logs_after}'.format(
+        #     init=self.get_full_prefix(aws_account_id, aws_region),
+        #     only_logs_after=self.only_logs_after.strftime(self.date_format)
+        # )
+        letter_time = connexa_time_converter(self.only_logs_after.timestamp())
+        only_logs_after_marker = f'{letter_time}-{self.only_logs_after.strftime(self.date_format)}'
+        debug (f'marker_only_logs_after: marker - {only_logs_after_marker}')
+        return only_logs_after_marker
 
     def get_alert_msg(self, aws_account_id, log_key, event, error_msg=""):
         """ Override to send the json read from the bucklet for OpenVPN entries. """
