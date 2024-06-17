@@ -6,7 +6,17 @@ import re
 import aws_bucket
 from aws_tools import debug
 
+def is_valid_filename(filename):
+    # Define the regex pattern
+    #pattern = r'^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[A-Za-z0-9]{4}\.jsonl\.gz$'
+    pattern = r'^.*\/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[A-Za-z0-9]{4}\.jsonl\.gz$'
 
+    
+    # Use re.match to check if the filename matches the pattern
+    if re.match(pattern, filename):
+        return True
+    else:
+        return False
 
 class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
@@ -143,6 +153,9 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
     def load_information_from_file(self, log_key):
         """Load data from a OpenVPN log files."""
         debug(f"DEBUG: +++ AWSOpenVPNCloudConnexaBucket:load_information_from_file {log_key}", 3)
+
+        if not is_valid_filename(log_key):
+            raise Exception(f'Filename {log_key} does not match the required pattern!')
 
         def json_event_generator(data):
             while data:
