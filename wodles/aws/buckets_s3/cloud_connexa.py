@@ -3,8 +3,15 @@ import json
 import sys
 import re
 
+import botocore
+
 import aws_bucket
+import aws_tools
 from aws_tools import debug
+
+
+
+THROTTLING_EXCEPTION_ERROR_CODE = "ThrottlingException"
 
 def is_valid_filename(filename):
     # Define the regex pattern
@@ -150,12 +157,93 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
     #     print('rock111: filter_args', filter_args)
     #     return filter_args
 
+    def iter_files_in_bucket(self, aws_account_id=None, aws_region=None, **kwargs):
+        if aws_account_id is None:
+            aws_account_id = self.aws_account_id
+        try:
+            bucket_files = self.client.list_objects_v2(
+                **self.build_s3_filter_args(aws_account_id, aws_region, **kwargs)
+            )
+            if self.reparse:
+                aws_tools.debug('++ Reparse mode enabled', 2)
+
+            while True:
+                if 'Contents' not in bucket_files:
+                    self._print_no_logs_to_process_message(self.bucket, aws_account_id, aws_region, **kwargs)
+                    return
+
+                processed_logs = 0
+
+                for bucket_file in self._filter_bucket_files(bucket_files['Contents'], **kwargs):
+
+                    if self.check_prefix:
+                        date_match = self.date_regex.search(bucket_file['Key'])
+                        match_start = date_match.span()[0] if date_match else None
+
+                        if not self._same_prefix(match_start, aws_account_id, aws_region):
+                            aws_tools.debug(f"++ Skipping file with another prefix: {bucket_file['Key']}", 3)
+                            continue
+
+                    if self.already_processed(bucket_file['Key'], aws_account_id, aws_region, **kwargs):
+                        if self.reparse:
+                            aws_tools.debug(f"++ File previously processed, but reparse flag set: {bucket_file['Key']}",
+                                            1)
+                        else:
+                            aws_tools.debug(f"++ Skipping previously processed file: {bucket_file['Key']}", 1)
+                            continue
+                    
+
+                    aws_tools.debug(f"++ Found new log: {bucket_file['Key']}", 2)
+                    if not is_valid_filename(bucket_file['Key']):
+                        aws_tools.debug(f"++ Skipping log file: {bucket_file['Key']} because of incorrect file format", 1)
+                        continue
+                    # Get the log file from S3 and decompress it
+                    log_json = self.get_log_file(aws_account_id, bucket_file['Key'])
+                    self.iter_events(log_json, bucket_file['Key'], aws_account_id)
+                    # Remove file from S3 Bucket
+                    if self.delete_file:
+                        aws_tools.debug(f"+++ Remove file from S3 Bucket:{bucket_file['Key']}", 2)
+                        self.client.delete_object(Bucket=self.bucket, Key=bucket_file['Key'])
+                    self.mark_complete(aws_account_id, aws_region, bucket_file, **kwargs)
+                    processed_logs += 1
+
+                # This is a workaround in order to work with custom buckets that don't have
+                # base prefix to search the logs
+                if processed_logs == 0:
+                    self._print_no_logs_to_process_message(self.bucket, aws_account_id, aws_region, **kwargs)
+
+                if bucket_files['IsTruncated']:
+                    new_s3_args = self.build_s3_filter_args(aws_account_id, aws_region, True, **kwargs)
+                    new_s3_args['ContinuationToken'] = bucket_files['NextContinuationToken']
+                    bucket_files = self.client.list_objects_v2(**new_s3_args)
+                else:
+                    break
+        except botocore.exceptions.ClientError as error:
+            error_message = "Unknown"
+            exit_number = 1
+            error_code = error.response.get("Error", {}).get("Code")
+
+            if error_code == THROTTLING_EXCEPTION_ERROR_CODE:
+                #error_message = f"{THROTTLING_EXCEPTION_ERROR_MESSAGE.format(name='iter_files_in_bucket')}: {error}"
+                exit_number = 16
+            else:
+                error_message = f'ERROR: The "iter_files_in_bucket" request failed: {error}'
+                exit_number = 1
+            print(f"ERROR: {error_message}")
+            exit(exit_number)
+
+        except Exception as err:
+            if hasattr(err, 'message'):
+                aws_tools.debug(f"+++ Unexpected error: {err.message}", 2)
+            else:
+                aws_tools.debug(f"+++ Unexpected error: {err}", 2)
+            print(f"ERROR: Unexpected error querying/working with objects in S3: {err}")
+            sys.exit(7)
+
     def load_information_from_file(self, log_key):
         """Load data from a OpenVPN log files."""
         debug(f"DEBUG: +++ AWSOpenVPNCloudConnexaBucket:load_information_from_file {log_key}", 3)
 
-        if not is_valid_filename(log_key):
-            raise Exception(f'Filename {log_key} does not match the required pattern!')
 
         def json_event_generator(data):
             while data:
