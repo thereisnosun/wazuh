@@ -114,7 +114,6 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         if not self.reparse:
             try:
                 marker_key = self._parse_log_marker(log_file['Key'])
-                marker_key
                 self.db_cursor.execute(self.sql_mark_complete.format(table_name=self.db_table_name), {
                     'bucket_path': self.bucket_path,
                     'aws_account_id': aws_account_id,
@@ -160,7 +159,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         # if nextContinuationToken is not used for processing logs in a bucket
         if not iterating:
-            filter_args['StartAfter'] = filter_marker
+            filter_args['StartAfter'] = marker_key
             if self.only_logs_after:
                 only_logs_marker = self.marker_only_logs_after(aws_region, aws_account_id)
                 filter_args['StartAfter'] = only_logs_marker if only_logs_marker > marker_key else filter_marker
@@ -284,6 +283,9 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         return json.loads(json.dumps(content))
 
+
+
+    #TODO: fix MARKER that is fetched and written to the DB
     def marker_only_logs_after(self, aws_region, aws_account_id):
         debug(f"+++ AWSOpenVPNCloudConnexaBucket:load_information_from_file {aws_region}/{aws_account_id}", 3)
         debug(f"+++ AWSOpenVPNCloudConnexaBucket:load_information_from_file get_full_prefix={self.get_full_prefix(aws_account_id, aws_region)}", 3)
