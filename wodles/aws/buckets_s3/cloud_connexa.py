@@ -192,11 +192,10 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                             aws_tools.debug(f"++ Skipping previously processed file: {bucket_file['Key']}", 1)
                             continue
                     
-
-                    aws_tools.debug(f"++ Found new log: {bucket_file['Key']}", 2)
                     if not is_valid_filename(bucket_file['Key']):
                         aws_tools.debug(f"++ Skipping log file: {bucket_file['Key']} because of incorrect file format", 1)
                         continue
+                    aws_tools.debug(f"++ Found new log: {bucket_file['Key']}", 2)
                     # Get the log file from S3 and decompress it
                     log_json = self.get_log_file(aws_account_id, bucket_file['Key'])
                     self.iter_events(log_json, bucket_file['Key'], aws_account_id)
