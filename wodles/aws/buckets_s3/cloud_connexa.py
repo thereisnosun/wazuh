@@ -162,7 +162,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             filter_args['StartAfter'] = marker_key
             if self.only_logs_after:
                 only_logs_marker = self.marker_only_logs_after(aws_region, aws_account_id)
-                filter_args['StartAfter'] = only_logs_marker if only_logs_marker > marker_key else filter_marker
+                filter_args['StartAfter'] = only_logs_marker if only_logs_marker > marker_key else marker_key
                 
             if custom_delimiter:
                 prefix_len = len(filter_args['Prefix'])
