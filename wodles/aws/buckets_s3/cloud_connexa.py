@@ -198,7 +198,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         try:
             for index, current_folder in enumerate(self.bucket_common_prefixes):
                 filter_args = self.build_s3_filter_args(aws_account_id, aws_region, **kwargs)
-                filter_args['Prefix'] = f"{filter_args['Prefix']}/{current_folder}"
+                filter_args['Prefix'] = current_folder
                 print('rock111: filter_args prefix after', filter_args['Prefix'])
                 bucket_files = self.client.list_objects_v2(
                     **filter_args
