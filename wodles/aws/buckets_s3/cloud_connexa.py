@@ -11,9 +11,18 @@ from aws_tools import debug
 
 
 
+RETRY_CONFIGURATION_URL = 'https://documentation.wazuh.com/current/amazon/services/prerequisites/' \
+                          'considerations.html#Connection-configuration-for-retries'
+
+INVALID_CREDENTIALS_ERROR_CODE = "SignatureDoesNotMatch"
+INVALID_REQUEST_TIME_ERROR_CODE = "RequestTimeTooSkewed"
 THROTTLING_EXCEPTION_ERROR_CODE = "ThrottlingException"
 
-
+INVALID_CREDENTIALS_ERROR_MESSAGE = "Invalid credentials to access S3 Bucket"
+INVALID_REQUEST_TIME_ERROR_MESSAGE = "The server datetime and datetime of the AWS environment differ"
+THROTTLING_EXCEPTION_ERROR_MESSAGE = "The '{name}' request was denied due to request throttling. " \
+                                     "If the problem persists check the following link to learn how to use " \
+                                     f"the Retry configuration to avoid it: '{RETRY_CONFIGURATION_URL}'"
 
  
 def _parse_log_marker(key):
@@ -49,6 +58,8 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         aws_bucket.AWSCustomBucket.__init__(self, db_table_name, **kwargs)
         self.date_format = '%Y-%m-%d'
         self.check_prefix = False
+        self.bucket_common_prefixes = []
+        self.current_bucket_index = 0
         self.sql_find_last_key_processed = """
             SELECT
                 log_key, marker_key
@@ -96,6 +107,14 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                 aws_organization_id=self.aws_organization_id)
 
         return base_path
+    
+    # def get_full_prefix(self, account_id, account_region):
+    #     if (self.current_bucket_index >= len(self.bucket_common_prefixes)):
+    #         self.current_bucket_index = 0
+        
+    #     prefix = f'{self.prefix}/{self.bucket_common_prefixes[self.current_bucket_index]}'
+    #     self.current_bucket_index += 1
+    #     return prefix
 
     def _parse_log_marker(self, key):
         # Define the regex pattern to match the date part
@@ -177,62 +196,66 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         if aws_account_id is None:
             aws_account_id = self.aws_account_id
         try:
-            bucket_files = self.client.list_objects_v2(
-                **self.build_s3_filter_args(aws_account_id, aws_region, **kwargs)
-            )
-            if self.reparse:
-                aws_tools.debug('++ Reparse mode enabled', 2)
+            for index, current_folder in enumerate(self.bucket_common_prefixes):
+                filter_args = self.build_s3_filter_args(aws_account_id, aws_region, **kwargs)
+                filter_args['Prefix'] = f"{filter_args['Prefix']}/{current_folder}"
+                print('rock111: filter_args prefix after', filter_args['Prefix'])
+                bucket_files = self.client.list_objects_v2(
+                    **filter_args
+                )
+                if self.reparse:
+                    aws_tools.debug('++ Reparse mode enabled', 2)
 
-            while True:
-                if 'Contents' not in bucket_files:
-                    self._print_no_logs_to_process_message(self.bucket, aws_account_id, aws_region, **kwargs)
-                    return
+                while True:
+                    if 'Contents' not in bucket_files:
+                        self._print_no_logs_to_process_message(self.bucket, aws_account_id, aws_region, **kwargs)
+                        break
 
-                processed_logs = 0
+                    processed_logs = 0
 
-                for bucket_file in self._filter_bucket_files(bucket_files['Contents'], **kwargs):
+                    for bucket_file in self._filter_bucket_files(bucket_files['Contents'], **kwargs):
 
-                    if self.check_prefix:
-                        date_match = self.date_regex.search(bucket_file['Key'])
-                        match_start = date_match.span()[0] if date_match else None
+                        if self.check_prefix:
+                            date_match = self.date_regex.search(bucket_file['Key'])
+                            match_start = date_match.span()[0] if date_match else None
 
-                        if not self._same_prefix(match_start, aws_account_id, aws_region):
-                            aws_tools.debug(f"++ Skipping file with another prefix: {bucket_file['Key']}", 3)
+                            if not self._same_prefix(match_start, aws_account_id, aws_region):
+                                aws_tools.debug(f"++ Skipping file with another prefix: {bucket_file['Key']}", 3)
+                                continue
+
+                        if self.already_processed(bucket_file['Key'], aws_account_id, aws_region, **kwargs):
+                            if self.reparse:
+                                aws_tools.debug(f"++ File previously processed, but reparse flag set: {bucket_file['Key']}",
+                                                1)
+                            else:
+                                aws_tools.debug(f"++ Skipping previously processed file: {bucket_file['Key']}", 1)
+                                continue
+                        
+                        if not is_valid_filename(bucket_file['Key']):
+                            aws_tools.debug(f"++ Skipping log file: {bucket_file['Key']} because of incorrect file format", 2)
                             continue
+                        aws_tools.debug(f"++ Found new log: {bucket_file['Key']}", 2)
+                        # Get the log file from S3 and decompress it
+                        log_json = self.get_log_file(aws_account_id, bucket_file['Key'])
+                        self.iter_events(log_json, bucket_file['Key'], aws_account_id)
+                        # Remove file from S3 Bucket
+                        if self.delete_file:
+                            aws_tools.debug(f"+++ Remove file from S3 Bucket:{bucket_file['Key']}", 2)
+                            self.client.delete_object(Bucket=self.bucket, Key=bucket_file['Key'])
+                        self.mark_complete(aws_account_id, aws_region, bucket_file, **kwargs)
+                        processed_logs += 1
 
-                    if self.already_processed(bucket_file['Key'], aws_account_id, aws_region, **kwargs):
-                        if self.reparse:
-                            aws_tools.debug(f"++ File previously processed, but reparse flag set: {bucket_file['Key']}",
-                                            1)
-                        else:
-                            aws_tools.debug(f"++ Skipping previously processed file: {bucket_file['Key']}", 1)
-                            continue
-                    
-                    if not is_valid_filename(bucket_file['Key']):
-                        aws_tools.debug(f"++ Skipping log file: {bucket_file['Key']} because of incorrect file format", 1)
-                        continue
-                    aws_tools.debug(f"++ Found new log: {bucket_file['Key']}", 2)
-                    # Get the log file from S3 and decompress it
-                    log_json = self.get_log_file(aws_account_id, bucket_file['Key'])
-                    self.iter_events(log_json, bucket_file['Key'], aws_account_id)
-                    # Remove file from S3 Bucket
-                    if self.delete_file:
-                        aws_tools.debug(f"+++ Remove file from S3 Bucket:{bucket_file['Key']}", 2)
-                        self.client.delete_object(Bucket=self.bucket, Key=bucket_file['Key'])
-                    self.mark_complete(aws_account_id, aws_region, bucket_file, **kwargs)
-                    processed_logs += 1
+                    # This is a workaround in order to work with custom buckets that don't have
+                    # base prefix to search the logs
+                    if processed_logs == 0:
+                        self._print_no_logs_to_process_message(self.bucket, aws_account_id, aws_region, **kwargs)
 
-                # This is a workaround in order to work with custom buckets that don't have
-                # base prefix to search the logs
-                if processed_logs == 0:
-                    self._print_no_logs_to_process_message(self.bucket, aws_account_id, aws_region, **kwargs)
-
-                if bucket_files['IsTruncated']:
-                    new_s3_args = self.build_s3_filter_args(aws_account_id, aws_region, True, **kwargs)
-                    new_s3_args['ContinuationToken'] = bucket_files['NextContinuationToken']
-                    bucket_files = self.client.list_objects_v2(**new_s3_args)
-                else:
-                    break
+                    if bucket_files['IsTruncated']:
+                        new_s3_args = self.build_s3_filter_args(aws_account_id, aws_region, True, **kwargs)
+                        new_s3_args['ContinuationToken'] = bucket_files['NextContinuationToken']
+                        bucket_files = self.client.list_objects_v2(**new_s3_args)
+                    else:
+                        break
         except botocore.exceptions.ClientError as error:
             error_message = "Unknown"
             exit_number = 1
@@ -254,6 +277,42 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                 aws_tools.debug(f"+++ Unexpected error: {err}", 2)
             print(f"ERROR: Unexpected error querying/working with objects in S3: {err}")
             sys.exit(7)
+
+    def check_bucket(self):
+        """Check if the bucket is empty or the credentials are wrong."""
+        try:
+            # If folders are not among the first 1000 results, pagination is needed.
+            paginator = self.client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix, Delimiter='/'):
+                if 'CommonPrefixes' in page:
+                    self.bucket_common_prefixes = {curr_prefix.get('Prefix') for curr_prefix in page['CommonPrefixes']}
+                    print("COMMON prefixes are:", self.bucket_common_prefixes)
+                    break
+            else:
+                print("ERROR: No files were found in '{0}'. No logs will be processed.".format(self.bucket_path))
+                exit(14)
+
+        except botocore.exceptions.ClientError as error:
+            error_message = "Unknown"
+            exit_number = 1
+            error_code = error.response.get("Error", {}).get("Code")
+
+            if error_code == THROTTLING_EXCEPTION_ERROR_CODE:
+                error_message = f"{THROTTLING_EXCEPTION_ERROR_MESSAGE.format(name='check_bucket')}: {error}"
+                exit_number = 16
+            elif error_code == INVALID_CREDENTIALS_ERROR_CODE:
+                error_message = INVALID_CREDENTIALS_ERROR_MESSAGE
+                exit_number = 3
+            elif error_code == INVALID_REQUEST_TIME_ERROR_CODE:
+                error_message = INVALID_REQUEST_TIME_ERROR_MESSAGE
+                exit_number = 19
+
+            print(f"ERROR: {error_message}")
+            exit(exit_number)
+        except botocore.exceptions.EndpointConnectionError as e:
+            print(f"ERROR: {str(e)}")
+            exit(15)
+
 
     def load_information_from_file(self, log_key):
         """Load data from a OpenVPN log files."""
@@ -283,16 +342,8 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         return json.loads(json.dumps(content))
 
-
-
     #TODO: fix MARKER that is fetched and written to the DB
     def marker_only_logs_after(self, aws_region, aws_account_id):
-        debug(f"+++ AWSOpenVPNCloudConnexaBucket:load_information_from_file {aws_region}/{aws_account_id}", 3)
-        debug(f"+++ AWSOpenVPNCloudConnexaBucket:load_information_from_file get_full_prefix={self.get_full_prefix(aws_account_id, aws_region)}", 3)
-        # return '{init}{only_logs_after}'.format(
-        #     init=self.get_full_prefix(aws_account_id, aws_region),
-        #     only_logs_after=self.only_logs_after.strftime(self.date_format)
-        # )
         only_logs_after_marker = f'{self.only_logs_after.strftime(self.date_format)}'
         debug (f'marker_only_logs_after: marker - {only_logs_after_marker}', 2)
         return only_logs_after_marker
