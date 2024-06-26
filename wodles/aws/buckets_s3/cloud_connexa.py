@@ -59,6 +59,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         self.date_format = '%Y-%m-%d'
         self.check_prefix = False
         self.bucket_common_prefixes = []
+        self.bucket_prefixes_markers = {}
         self.current_bucket_index = 0
         self.sql_find_last_key_processed = """
             SELECT
@@ -144,7 +145,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                 debug("+++ Error marking log {} as completed: {}".format(log_file['Key'], e), 2)
 
 
-    def build_s3_filter_args(self, aws_account_id, aws_region, iterating=False, custom_delimiter='', **kwargs):
+    def build_s3_filter_args(self, aws_account_id, aws_region, current_folder, iterating=False, custom_delimiter='', **kwargs):
         filter_marker = ''
         marker_key = ''
         if self.reparse:
@@ -157,7 +158,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                 self.sql_find_last_key_processed.format(table_name=self.db_table_name), {
                     'bucket_path': self.bucket_path,
                     'aws_region': aws_region,
-                    'prefix': f'{self.prefix}%',
+                    'prefix': f'{current_folder}%',
                     'aws_account_id': aws_account_id,
                     **kwargs
                 })
@@ -188,6 +189,8 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                 filter_args['StartAfter'] = filter_args['StartAfter'][:prefix_len] + \
                                             filter_args['StartAfter'][prefix_len:].replace('/', custom_delimiter)
             debug(f"+++ Marker: {filter_args['StartAfter']}", 2)
+        filter_args['Prefix'] = current_folder
+        filter_args['StartAfter'] = f"{current_folder}{filter_args['StartAfter']}"
 
         print('rock111: filter_args', filter_args)
         return filter_args
@@ -197,8 +200,8 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             aws_account_id = self.aws_account_id
         try:
             for index, current_folder in enumerate(self.bucket_common_prefixes):
-                filter_args = self.build_s3_filter_args(aws_account_id, aws_region, **kwargs)
-                filter_args['Prefix'] = current_folder
+                filter_args = self.build_s3_filter_args(aws_account_id, aws_region, current_folder, **kwargs)
+
                 print('rock111: filter_args prefix after', filter_args['Prefix'])
                 bucket_files = self.client.list_objects_v2(
                     **filter_args
@@ -251,7 +254,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                         self._print_no_logs_to_process_message(self.bucket, aws_account_id, aws_region, **kwargs)
 
                     if bucket_files['IsTruncated']:
-                        new_s3_args = self.build_s3_filter_args(aws_account_id, aws_region, True, **kwargs)
+                        new_s3_args = self.build_s3_filter_args(aws_account_id, aws_region, current_folder, True, **kwargs)
                         new_s3_args['ContinuationToken'] = bucket_files['NextContinuationToken']
                         bucket_files = self.client.list_objects_v2(**new_s3_args)
                     else:
