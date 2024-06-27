@@ -190,7 +190,8 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                                             filter_args['StartAfter'][prefix_len:].replace('/', custom_delimiter)
             debug(f"+++ Marker: {filter_args['StartAfter']}", 2)
         filter_args['Prefix'] = current_folder
-        filter_args['StartAfter'] = f"{current_folder}{filter_args['StartAfter']}"
+        if 'StartAfter' in filter_args:
+            filter_args['StartAfter'] = f"{current_folder}{filter_args['StartAfter']}"
 
         print('rock111: filter_args', filter_args)
         return filter_args
