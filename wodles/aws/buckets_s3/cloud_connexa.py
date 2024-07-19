@@ -95,13 +95,14 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         if not self.reparse:
             try:
                 marker_key = self._parse_log_marker(log_file['Key'])
-                self.db_cursor.execute(self.sql_mark_complete.format(table_name=self.db_table_name), {
+                return_val = self.db_cursor.execute(self.sql_mark_complete.format(table_name=self.db_table_name), {
                     'bucket_path': self.bucket_path,
                     'aws_account_id': aws_account_id,
                     'aws_region': aws_region,
                     'log_key': log_file['Key'],
                     'marker_key': marker_key,
                     'created_date': self.get_creation_date(log_file)})
+                print('rock111: mark_complete', log_file['Key'], marker_key, return_val)
             except Exception as e:
                 debug("+++ Error marking log {} as completed: {}".format(log_file['Key'], e), 2)
 
