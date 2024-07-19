@@ -161,9 +161,10 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             aws_account_id = self.aws_account_id
         try:
             for current_folder in self.bucket_common_prefixes:
-                print('rock111: iter_files_in_bucket current_folder', current_folder, filter_args['Prefix'])
+                
                 filter_args = self.build_s3_filter_args(aws_account_id, aws_region, current_folder, **kwargs)
 
+                print('rock111: iter_files_in_bucket current_folder', current_folder, filter_args['Prefix'])
                 bucket_files = self.client.list_objects_v2(
                     **filter_args
                 )
