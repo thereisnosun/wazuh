@@ -222,6 +222,8 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
                         bucket_files = self.client.list_objects_v2(**new_s3_args)
                     else:
                         break
+                #commiting changes:
+                self.db_connector.commit() #commit changes
         except botocore.exceptions.ClientError as error:
             error_message = "Unknown"
             exit_number = 1
