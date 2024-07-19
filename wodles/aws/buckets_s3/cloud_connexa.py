@@ -9,43 +9,14 @@ import aws_bucket
 import aws_tools
 from aws_tools import debug
 
-
-
-RETRY_CONFIGURATION_URL = 'https://documentation.wazuh.com/current/amazon/services/prerequisites/' \
-                          'considerations.html#Connection-configuration-for-retries'
-
-INVALID_CREDENTIALS_ERROR_CODE = "SignatureDoesNotMatch"
-INVALID_REQUEST_TIME_ERROR_CODE = "RequestTimeTooSkewed"
-THROTTLING_EXCEPTION_ERROR_CODE = "ThrottlingException"
-
-INVALID_CREDENTIALS_ERROR_MESSAGE = "Invalid credentials to access S3 Bucket"
-INVALID_REQUEST_TIME_ERROR_MESSAGE = "The server datetime and datetime of the AWS environment differ"
-THROTTLING_EXCEPTION_ERROR_MESSAGE = "The '{name}' request was denied due to request throttling. " \
-                                     "If the problem persists check the following link to learn how to use " \
-                                     f"the Retry configuration to avoid it: '{RETRY_CONFIGURATION_URL}'"
-
- 
-def _parse_log_marker(key):
-    # Define the regex pattern to match the date part
-    pattern = r'\d{4}-\d{2}-\d{2}'
-
-    # Search for the date pattern in the filename
-    match = re.search(pattern, key)
-
-    if match:
-        date_string = match.group(0)
-        return f'{date_string}'
-    else:
-        print("rock111: Date not found in the filename.")
+from consts import (INVALID_CREDENTIALS_ERROR_CODE, INVALID_REQUEST_TIME_ERROR_CODE, THROTTLING_EXCEPTION_ERROR_CODE,
+                    INVALID_CREDENTIALS_ERROR_MESSAGE, INVALID_REQUEST_TIME_ERROR_MESSAGE, THROTTLING_EXCEPTION_ERROR_MESSAGE )
 
 
 def is_valid_filename(filename):
     # Define the regex pattern
-    #pattern = r'^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[A-Za-z0-9]{4}\.jsonl\.gz$'
     pattern = r'^.*\/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[A-Za-z0-9]{4}\.jsonl\.gz$'
 
-    
-    # Use re.match to check if the filename matches the pattern
     if re.match(pattern, filename):
         return True
     else:
@@ -59,8 +30,6 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         self.date_format = '%Y-%m-%d'
         self.check_prefix = False
         self.bucket_common_prefixes = []
-        self.bucket_prefixes_markers = {}
-        self.current_bucket_index = 0
         self.sql_find_last_key_processed = """
             SELECT
                 log_key, marker_key
@@ -109,14 +78,6 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         return base_path
     
-    # def get_full_prefix(self, account_id, account_region):
-    #     if (self.current_bucket_index >= len(self.bucket_common_prefixes)):
-    #         self.current_bucket_index = 0
-        
-    #     prefix = f'{self.prefix}/{self.bucket_common_prefixes[self.current_bucket_index]}'
-    #     self.current_bucket_index += 1
-    #     return prefix
-
     def _parse_log_marker(self, key):
         # Define the regex pattern to match the date part
         pattern = r'\d{4}-\d{2}-\d{2}'
@@ -128,7 +89,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             date_string = match.group(0)
             return f'{date_string}'
         else:
-            print("rock111: Date not found in the filename.")
+            aws_tools.debug(f"Error: Date not found in the {key} filename.", 2)
 
     def mark_complete(self, aws_account_id, aws_region, log_file, **kwargs):
         if not self.reparse:
@@ -193,17 +154,16 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         if 'StartAfter' in filter_args:
             filter_args['StartAfter'] = f"{current_folder}{filter_args['StartAfter']}"
 
-        print('rock111: filter_args', filter_args)
         return filter_args
 
     def iter_files_in_bucket(self, aws_account_id=None, aws_region=None, **kwargs):
         if aws_account_id is None:
             aws_account_id = self.aws_account_id
         try:
-            for index, current_folder in enumerate(self.bucket_common_prefixes):
+            for current_folder in self.bucket_common_prefixes:
+                print('rock111: iter_files_in_bucket current_folder', current_folder, filter_args['Prefix'])
                 filter_args = self.build_s3_filter_args(aws_account_id, aws_region, current_folder, **kwargs)
 
-                print('rock111: filter_args prefix after', filter_args['Prefix'])
                 bucket_files = self.client.list_objects_v2(
                     **filter_args
                 )
@@ -266,7 +226,7 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             error_code = error.response.get("Error", {}).get("Code")
 
             if error_code == THROTTLING_EXCEPTION_ERROR_CODE:
-                #error_message = f"{THROTTLING_EXCEPTION_ERROR_MESSAGE.format(name='iter_files_in_bucket')}: {error}"
+                error_message = f"{THROTTLING_EXCEPTION_ERROR_MESSAGE.format(name='iter_files_in_bucket')}: {error}"
                 exit_number = 16
             else:
                 error_message = f'ERROR: The "iter_files_in_bucket" request failed: {error}'
@@ -322,7 +282,6 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
         """Load data from a OpenVPN log files."""
         debug(f"DEBUG: +++ AWSOpenVPNCloudConnexaBucket:load_information_from_file {log_key}", 3)
 
-
         def json_event_generator(data):
             while data:
                 json_data, json_index = decoder.raw_decode(data)
@@ -346,10 +305,8 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
 
         return json.loads(json.dumps(content))
 
-    #TODO: fix MARKER that is fetched and written to the DB
     def marker_only_logs_after(self, aws_region, aws_account_id):
         only_logs_after_marker = f'{self.only_logs_after.strftime(self.date_format)}'
-        debug (f'marker_only_logs_after: marker - {only_logs_after_marker}', 2)
         return only_logs_after_marker
 
     def get_alert_msg(self, aws_account_id, log_key, event, error_msg=""):
@@ -374,4 +331,3 @@ class AWSCloudConnexaBucket(aws_bucket.AWSCustomBucket):
             )
         debug(f"+++ AWSOpenVPNCloudConnexaBucketget_alert_msg return {msg}", 3)
         return msg
-        
